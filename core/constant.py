@@ -5,7 +5,6 @@ from typing import Dict, Optional, List, Union, Any
 from copy import deepcopy
 from abc import ABC, abstractmethod
 from datetime import datetime
-from core.base import BaseData
 
 class OrderStatus(Enum):
     """订单状态"""
@@ -29,6 +28,13 @@ class SecurityType(Enum):
     """证券类型"""
     STOCK = "STOCK"  # 股票
     ETF = "ETF"      # ETF基金
+    CRYPTO = "CRYPTO" # 数字货币
+
+class EngineType(Enum):
+    """组件类型"""
+    TRADER = "trader"      # 交易接口
+    DATA = "data"          # 数据源
+    ENGINE = "engine"      # 功能引擎
 
 # 数据频率类型
 class FreqType(Enum):
@@ -128,85 +134,6 @@ class Exchange(Enum):
 
     # Special Function
     LOCAL = "LOCAL"         # For local generated data
-@dataclass
-class TickData(BaseData):
-    """
-    Tick data contains information about:
-        * last trade in market
-        * orderbook snapshot
-        * intraday market statistics.
-    """
-
-    symbol: str
-    exchange: Exchange
-    datetime: datetime
-
-    name: str = ""
-    volume: float = 0
-    turnover: float = 0
-    open_interest: float = 0
-    last_price: float = 0
-    last_volume: float = 0
-    limit_up: float = 0
-    limit_down: float = 0
-
-    open_price: float = 0
-    high_price: float = 0
-    low_price: float = 0
-    pre_close: float = 0
-
-    bid_price_1: float = 0
-    bid_price_2: float = 0
-    bid_price_3: float = 0
-    bid_price_4: float = 0
-    bid_price_5: float = 0
-
-    ask_price_1: float = 0
-    ask_price_2: float = 0
-    ask_price_3: float = 0
-    ask_price_4: float = 0
-    ask_price_5: float = 0
-
-    bid_volume_1: float = 0
-    bid_volume_2: float = 0
-    bid_volume_3: float = 0
-    bid_volume_4: float = 0
-    bid_volume_5: float = 0
-
-    ask_volume_1: float = 0
-    ask_volume_2: float = 0
-    ask_volume_3: float = 0
-    ask_volume_4: float = 0
-    ask_volume_5: float = 0
-
-    localtime: datetime = None
-
-    def __post_init__(self) -> None:
-        """"""
-        self.vt_symbol: str = f"{self.symbol}.{self.exchange.value}"
-
-@dataclass
-class BarData(BaseData):
-    """
-    Candlestick bar data of a certain trading period.
-    """
-
-    symbol: str
-    exchange: Exchange
-    datetime: datetime
-
-    interval: Interval = None
-    volume: float = 0
-    turnover: float = 0
-    open_interest: float = 0
-    open_price: float = 0
-    high_price: float = 0
-    low_price: float = 0
-    close_price: float = 0
-
-    def __post_init__(self) -> None:
-        """"""
-        self.vt_symbol: str = f"{self.symbol}.{self.exchange.value}"
 
 
 class EventType(Enum):
@@ -247,12 +174,6 @@ class Event:
         self.data = deepcopy(self.data)
 
     def clone(self) -> 'Event':
-        """创建事件的深拷贝"""
-        # return Event(
-        #     type=self.type,
-        #     data=deepcopy(self.data),
-        #     timestamp=self.timestamp
-        # )
         """使用fields方法创建对象副本"""
         new_event = Event(type=self.type, data=None, timestamp=self.timestamp)
         
@@ -303,7 +224,17 @@ class Order:
         """初始化后的类型检查"""
         self.security_type = get_security_type(self.symbol)
 
-    #     return new_order
+    def get_extra_params(self) -> dict:
+        """获取额外参数"""
+        extra_params = {}
+        
+        # 根据证券类型添加特定参数
+        if self.security_type == SecurityType.CRYPTO:
+            if hasattr(self, 'leverage'):
+                extra_params['leverage'] = getattr(self, 'leverage', 1)
+                
+        return extra_params
+
 # 动态创建类
 class DictToClass:
     def __init__(self, data):

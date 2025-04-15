@@ -1,7 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from dataclasses import dataclass, field, fields
-
+from .constant import OrderType, OrderSide, Exchange, Interval
+from datetime import datetime
+class BaseOnline(ABC):
+    """在线数据基类"""
+    @abstractmethod
+    def get_realtime_quotes(self, code: str) -> Dict:
+        pass
+    @abstractmethod
+    def get_realtime_quotes_list(self, code_list: List[str]) -> List[Dict]:
+        pass
 @dataclass
 class BaseData:
     """
@@ -12,6 +21,134 @@ class BaseData:
     gateway_name: str
 
     extra: Optional[dict] = field(default=None, init=False)
+@dataclass
+class TickData(BaseData):
+    """
+    Tick data contains information about:
+        * last trade in market
+        * orderbook snapshot
+        * intraday market statistics.
+    """
+
+    symbol: str
+    exchange: Exchange
+    datetime: datetime
+
+    name: str = ""
+    volume: float = 0
+    turnover: float = 0
+    open_interest: float = 0
+    last_price: float = 0
+    last_volume: float = 0
+    limit_up: float = 0
+    limit_down: float = 0
+
+    open_price: float = 0
+    high_price: float = 0
+    low_price: float = 0
+    pre_close: float = 0
+
+    bid1: float = 0
+    bid2: float = 0
+    bid3: float = 0
+    bid4: float = 0
+    bid5: float = 0
+
+    ask1: float = 0
+    ask2: float = 0
+    ask3: float = 0
+    ask4: float = 0
+    ask5: float = 0
+
+    bidvol1: float = 0
+    bidvol2: float = 0
+    bidvol3: float = 0
+    bidvol4: float = 0
+    bidvol5: float = 0
+
+    askvol1: float = 0
+    askvol2: float = 0
+    askvol3: float = 0
+    askvol4: float = 0
+    askvol5: float = 0
+
+    localtime: datetime = None
+
+    def __post_init__(self) -> None:
+        """"""
+        self.vt_symbol: str = f"{self.symbol}.{self.exchange.value}"
+
+@dataclass
+class BarData(BaseData):
+    """
+    Candlestick bar data of a certain trading period.
+    """
+
+    symbol: str
+    exchange: Exchange
+    datetime: datetime
+
+    interval: Interval = None
+    volume: float = 0
+    turnover: float = 0
+    open_interest: float = 0
+    open_price: float = 0
+    high_price: float = 0
+    low_price: float = 0
+    close_price: float = 0
+
+    def __post_init__(self) -> None:
+        """"""
+        self.vt_symbol: str = f"{self.symbol}.{self.exchange.value}"
+
+class BaseTrader(ABC):
+    """
+    量化交易接口基类，定义了统一的接口方法
+    """
+    def __init__(self):
+        self.name = "BaseTrader"
+        self.connected = False
+    
+    @abstractmethod
+    def connect(self) -> bool:
+        """连接交易接口"""
+        pass
+    
+    @abstractmethod
+    def disconnect(self) -> bool:
+        """断开连接"""
+        pass
+    
+    @abstractmethod
+    def get_account_info(self) -> Dict:
+        """获取账户信息"""
+        pass
+    
+    @abstractmethod
+    def get_positions(self) -> Dict:
+        """获取持仓信息"""
+        pass
+    
+    @abstractmethod
+    def place_order(self, symbol: str, volume: float, price: Optional[float] = None, 
+                    order_type:OrderType = OrderType.LIMIT,direction: OrderSide = OrderSide.BUY) -> str:
+        """下单"""
+        pass
+    
+    @abstractmethod
+    def cancel_order(self, order_id: str) -> bool:
+        """撤单"""
+        pass
+    
+    @abstractmethod
+    def get_orders(self) -> Dict:
+        """获取订单信息"""
+        pass 
+    def order_info(self, order_id: str) -> Dict:
+        """获取订单详情"""
+        pass
+
+
 class DataConverter(ABC):
     """行情数据转换器基类"""
     

@@ -25,7 +25,7 @@ class EventEngine:
         """
         self._queue = Queue()
         self._active = False
-        self._handlers: Dict[str, list] = {}
+        self._handlers: Dict[str, Dict[int, Callable]] = {}
         self._general_handlers = []
         
         # 事件处理线程
@@ -35,7 +35,9 @@ class EventEngine:
         self._timer = Thread(target=self._run_timer)
         self._timer_active = False
         self._timer_interval = timer_interval  # 计时器间隔
-        self._timer_handlers = []  # 计时器事件处理函数列表
+        
+        self._timer_handlers = {}  # 计时器事件处理函数字典
+        self._timer_handler_count = 0  # 计时器处理函数计数器
 
     def _run(self):
         """引擎运行"""
@@ -49,7 +51,7 @@ class EventEngine:
     def _process(self, event: Event):
         """处理事件"""
         if event.type in self._handlers:
-            for handler in self._handlers[event.type]:
+            for handler in self._handlers[event.type].values():
                 try:
                     # 为每个handler提供事件的独立副本
                     handler(event.clone())
@@ -63,7 +65,7 @@ class EventEngine:
         """
         while self._timer_active:
             # 执行计时器事件处理函数
-            for handler in self._timer_handlers:
+            for handler in self._timer_handlers.values():
                 try:
                     handler()
                 except Exception as e:
@@ -92,14 +94,21 @@ class EventEngine:
 
     def register(self, type_: EventType, handler: Callable[[Event], None]):
         """注册事件处理函数"""
-        handler_list = self._handlers.setdefault(type_, [])
-        handler_list.append(handler)
+        if type_ not in self._handlers:
+            self._handlers[type_] = {}
+            
+        # 使用内存地址作为键
+        handler_id = id(handler)
+        self._handlers[type_][handler_id] = handler
         
     def unregister(self, type_: EventType, handler: Callable[[Event], None]):
         """注销事件处理函数"""
-        handler_list = self._handlers.get(type_, [])
-        if handler in handler_list:
-            handler_list.remove(handler)
+        if type_ not in self._handlers:
+            return
+            
+        handler_id = id(handler)
+        if handler_id in self._handlers[type_]:
+            del self._handlers[type_][handler_id]
 
     def put(self, event: Event):
         """推送事件"""
@@ -112,7 +121,8 @@ class EventEngine:
         Args:
             handler: 计时器事件处理函数
         """
-        self._timer_handlers.append(handler)
+        handler_id = id(handler)
+        self._timer_handlers[handler_id] = handler
 
     def unregister_timer_handler(self, handler: Callable[[], None]):
         """
@@ -121,5 +131,6 @@ class EventEngine:
         Args:
             handler: 计时器事件处理函数
         """
-        if handler in self._timer_handlers:
-            self._timer_handlers.remove(handler) 
+        handler_id = id(handler)
+        if handler_id in self._timer_handlers:
+            del self._timer_handlers[handler_id] 
