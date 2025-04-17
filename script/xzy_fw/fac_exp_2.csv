@@ -1,0 +1,8 @@
+,0
+0,"ts_quantile(ts_sum(ts_cov(Volume, Close, 360), 15), 0.1, 240)"
+1,"ts_quantile(ts_cov(ts_max(div(ts_regbeta(Low, Open, 240), ts_rank(Open, 360)), 60), add(Close, Volume), 120), 0.95, 360)"
+2,"ts_stddev(div(Close, Low), 480)"
+3,"ts_max(ts_stddev(pow(log(Close), -2), 60), 360)"
+4,"ts_cov(ts_wma(ts_demean(Volume, 240), 15), inv(ts_argmin(High, 480)), 480)"
+5,"ts_mean(abs(ts_min(mul(ts_mean_return(sigmoid(Low), 5), mul(ts_regbeta(Low, Close, 360), inv(High))), 15)), 360)"
+6,"ts_max(ts_min(ts_mean_return(Open, 360), 480), 5)"
