@@ -25,10 +25,6 @@ from core.engine.main_engine import MainEngine
 test_api_key = "c3be109e8eb4be673f69b2bced4be0494efe24bb45ee31aae152c44c60ffdbd8"
 test_secret_key = "20beaf4892d63ae8fa58fe3b3d5e49030f428859567a64449bfb42fa5465165a"
 
-# API Key
-# c3be109e8eb4be673f69b2bced4be0494efe24bb45ee31aae152c44c60ffdbd8
-# API Secret
-# 20beaf4892d63ae8fa58fe3b3d5e49030f428859567a64449bfb42fa5465165a
 
 main_engine = MainEngine()
 event_engine = main_engine.event_engine
