@@ -26,55 +26,34 @@ test_api_key = "c3be109e8eb4be673f69b2bced4be0494efe24bb45ee31aae152c44c60ffdbd8
 test_secret_key = "20beaf4892d63ae8fa58fe3b3d5e49030f428859567a64449bfb42fa5465165a"
 
 
-main_engine = MainEngine()
-event_engine = main_engine.event_engine
+# main_engine = MainEngine()
+# event_engine = main_engine.event_engine
 
-trader = BinanceTraderEngine(main_engine, event_engine)
-trader.init_client(
-    api_key=test_api_key, 
-    api_secret=test_secret_key, 
-    use_testnet=True,
-    simulate_trading=False
-)
+# 示例：如何在程序中直接使用
+trader = BinanceTraderEngine()
+trader.init_client(test_api_key, test_secret_key, use_testnet=True)
 
-# 设置杠杆和保证金类型
-# leverage_result = trader.set_leverage("BTCUSDT", 5)
-# print(f"设置杠杆倍数结果: {leverage_result}")
+# 目标金额模式
+trader.order_target_amount("BTCUSDT", 100, 50, "MARKET")
 
-# margin_result = trader.set_margin_type("BTCUSDT", "ISOLATED")
-# print(f"设置保证金类型结果: {margin_result}")
+# 传统模式
+# trader.order_by_margin("BTCUSDT", 100, 10, "BUY", "MARKET")
 
-# 获取当前价格
-price = trader.get_ticker_price("BTCUSDT")
-print(f"当前BTCUSDT价格: {price}")
+# # 设置杠杆和保证金类型
+# # leverage_result = trader.set_leverage("BTCUSDT", 5)
+# # print(f"设置杠杆倍数结果: {leverage_result}")
 
-# 获取交易对精度信息
-price_precision, quantity_precision = trader.get_symbol_precision("BTCUSDT")
-print(f"价格精度: {price_precision}, 数量精度: {quantity_precision}")
+# # margin_result = trader.set_margin_type("BTCUSDT", "ISOLATED")
+# # print(f"设置保证金类型结果: {margin_result}")
 
-# 计算满足最小名义价值100 USDT的数量
-# limit_price = round(price * 0.95, price_precision)  # 比当前价格低5%
-# min_notional = 100  # 最小名义价值要求(Binance规定)
-# min_quantity = min_notional / limit_price  # 计算满足最小名义价值的数量
-# quantity = round(max(min_quantity, 0.001), quantity_precision)  # 确保数量足够大
+# # 获取当前价格
+# price = trader.get_ticker_price("BTCUSDT")
+# print(f"当前BTCUSDT价格: {price}")
 
-# # 检查名义价值是否满足要求
-# notional_value = limit_price * quantity
-# if notional_value < min_notional:
-#     # 增加数量以满足最小名义价值要求
-#     quantity = round(min_notional / limit_price + 0.001, quantity_precision)
-#     notional_value = limit_price * quantity
+# # 获取交易对精度信息
+# price_precision, quantity_precision = trader.get_symbol_precision("BTCUSDT")
+# print(f"价格精度: {price_precision}, 数量精度: {quantity_precision}")
 
-# print(f"下单价格: {limit_price}, 下单数量: {quantity}, 名义价值: {round(notional_value, 2)} USDT")
-
-# # 下限价单
-# result = trader.place_order(
-#     symbol="BTCUSDT",
-#     side="BUY",
-#     order_type="LIMIT",
-#     quantity=quantity,
-#     price=limit_price
-# )
 
 
 

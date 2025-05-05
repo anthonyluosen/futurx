@@ -70,6 +70,11 @@ def order_by_margin(symbol, margin, leverage, side, order_type="MARKET", test_mo
             simulate_trading=False
         )
     
+    # 获取交易对信息
+    symbol_info = trader.get_symbol_info(symbol)
+    if not symbol_info:
+        return {'error': f'获取{symbol}信息失败'}
+    
     # 获取交易对价格
     price = trader.get_ticker_price(symbol)
     if price <= 0:
@@ -102,15 +107,22 @@ def order_by_margin(symbol, margin, leverage, side, order_type="MARKET", test_mo
         notional_value = contract_amount * price
         print(f"调整后合约数量: {contract_amount}, 名义价值: {notional_value:.2f} USDT")
     
-    # 格式化合约数量，对数量进行四舍五入
-    # 理想情况下应该从交易所获取精度，这里简化处理
-    # 不同的交易对有不同的精度要求
-    if symbol.startswith("BTC"):
-        quantity_precision = 3
-    elif symbol.startswith("ETH"):
-        quantity_precision = 3
-    else:
-        quantity_precision = 1
+    # 获取数量精度和最小变动单位
+    try:
+        step_size, quantity_precision = trader.get_lot_size_filter(symbol)
+        print(f"获取到{symbol}数量精度: {quantity_precision}, 最小数量变动单位: {step_size}")
+        
+        # 确保数量符合最小变动单位
+        contract_amount = math.floor(contract_amount / step_size) * step_size
+    except Exception as e:
+        print(f"获取数量精度失败: {e}, 使用默认值")
+        # 使用默认值
+        if symbol.lower().startswith("btc"):
+            quantity_precision = 3
+        elif symbol.lower().startswith("eth"):
+            quantity_precision = 3
+        else:
+            quantity_precision = 1
     
     # 四舍五入到指定精度
     contract_amount = round(contract_amount, quantity_precision)
@@ -138,15 +150,33 @@ def order_by_margin(symbol, margin, leverage, side, order_type="MARKET", test_mo
         price_offset = 0.005  # 价格偏移0.5%
         limit_price = price * (1 - price_offset) if side == "BUY" else price * (1 + price_offset)
         
-        # 理想情况下应该从交易所获取价格精度
-        if symbol.startswith("BTC"):
-            price_precision = 1
-        elif symbol.startswith("ETH"):
-            price_precision = 2
-        else:
-            price_precision = 2
+        # 获取价格精度和最小价格变动单位
+        try:
+            tick_size, price_precision = trader.get_price_filter(symbol)
+            print(f"获取到{symbol}价格精度: {price_precision}, 最小价格变动单位: {tick_size}")
             
+            # 确保价格符合最小价格变动单位
+            limit_price = math.floor(limit_price / tick_size) * tick_size
+        except Exception as e:
+            print(f"获取价格精度失败: {e}, 使用默认值")
+            # 使用默认值
+            if symbol.lower().startswith("btc"):
+                price_precision = 1
+                tick_size = 0.1
+            elif symbol.lower().startswith("eth"):
+                price_precision = 2
+                tick_size = 0.01
+            else:
+                price_precision = 2
+                tick_size = 0.01
+            
+            # 处理价格
+            limit_price = math.floor(limit_price / tick_size) * tick_size
+            
+        # 四舍五入到指定精度
         limit_price = round(limit_price, price_precision)
+        
+        print(f"限价单价格: {limit_price} (精度: {price_precision}, 最小变动单位: {tick_size})")
         
         result = trader.place_order(
             symbol=symbol,
@@ -202,6 +232,11 @@ def order_target_amount(symbol, target_margin, leverage, order_type="MARKET", te
             simulate_trading=False
         )
     
+    # 获取交易对信息
+    symbol_info = trader.get_symbol_info(symbol)
+    if not symbol_info:
+        return {'error': f'获取{symbol}信息失败'}
+    
     # 获取交易对价格
     price = trader.get_ticker_price(symbol)
     if price <= 0:
@@ -219,11 +254,10 @@ def order_target_amount(symbol, target_margin, leverage, order_type="MARKET", te
     
     # 获取当前持仓
     positions = trader.get_positions(symbol)
-    
     # 查找当前持仓
     current_position = 0.0
     for pos in positions:
-        if pos.get('symbol') == symbol:
+        if pos.get('symbol') == symbol.upper():
             current_position = float(pos.get('positionAmt', 0))
             break
     
@@ -280,14 +314,22 @@ def order_target_amount(symbol, target_margin, leverage, order_type="MARKET", te
         notional_value = contract_amount * price
         print(f"调整后合约数量: {contract_amount}, 名义价值: {notional_value:.2f} USDT")
     
-    # 格式化合约数量，对数量进行四舍五入
-    # 不同的交易对有不同的精度要求
-    if symbol.startswith("BTC"):
-        quantity_precision = 3
-    elif symbol.startswith("ETH"):
-        quantity_precision = 3
-    else:
-        quantity_precision = 1
+    # 获取数量精度和最小变动单位
+    try:
+        step_size, quantity_precision = trader.get_lot_size_filter(symbol)
+        print(f"获取到{symbol}数量精度: {quantity_precision}, 最小数量变动单位: {step_size}")
+        
+        # 确保数量符合最小变动单位
+        contract_amount = math.floor(contract_amount / step_size) * step_size
+    except Exception as e:
+        print(f"获取数量精度失败: {e}, 使用默认值")
+        # 使用默认值
+        if symbol.lower().startswith("btc"):
+            quantity_precision = 3
+        elif symbol.lower().startswith("eth"):
+            quantity_precision = 3
+        else:
+            quantity_precision = 1
     
     # 四舍五入到指定精度
     contract_amount = round(contract_amount, quantity_precision)
@@ -316,15 +358,33 @@ def order_target_amount(symbol, target_margin, leverage, order_type="MARKET", te
         price_offset = 0.005  # 价格偏移0.5%
         limit_price = price * (1 - price_offset) if side == "BUY" else price * (1 + price_offset)
         
-        # 获取价格精度
-        if symbol.startswith("BTC"):
-            price_precision = 1
-        elif symbol.startswith("ETH"):
-            price_precision = 2
-        else:
-            price_precision = 2
+        # 获取价格精度和最小价格变动单位
+        try:
+            tick_size, price_precision = trader.get_price_filter(symbol)
+            print(f"获取到{symbol}价格精度: {price_precision}, 最小价格变动单位: {tick_size}")
             
+            # 确保价格符合最小价格变动单位
+            limit_price = math.floor(limit_price / tick_size) * tick_size
+        except Exception as e:
+            print(f"获取价格精度失败: {e}, 使用默认值")
+            # 使用默认值
+            if symbol.lower().startswith("btc"):
+                price_precision = 1
+                tick_size = 0.1
+            elif symbol.lower().startswith("eth"):
+                price_precision = 2
+                tick_size = 0.01
+            else:
+                price_precision = 2
+                tick_size = 0.01
+            
+            # 处理价格
+            limit_price = math.floor(limit_price / tick_size) * tick_size
+            
+        # 四舍五入到指定精度
         limit_price = round(limit_price, price_precision)
+        
+        print(f"限价单价格: {limit_price} (精度: {price_precision}, 最小变动单位: {tick_size})")
         
         result = trader.place_order(
             symbol=symbol,
@@ -352,9 +412,9 @@ if __name__ == "__main__":
     # 创建命令行参数解析器
     parser = argparse.ArgumentParser(description='基于保证金金额的Binance合约下单工具')
     parser.add_argument('--target', action='store_true', help='使用目标金额模式，自动调整仓位')
-    parser.add_argument('symbol', type=str, help='交易对，如BTCUSDT')
-    parser.add_argument('margin', type=float, help='保证金金额(USDT)，正数为做多，负数为做空')
-    parser.add_argument('leverage', type=int, help='杠杆倍数，范围1-125')
+    parser.add_argument('symbol', type=str, default= "btcusdt",help='交易对，如BTCUSDT')
+    parser.add_argument('margin', type=float,default=5, help='保证金金额(USDT)，正数为做多，负数为做空')
+    parser.add_argument('leverage', type=int,default=20, help='杠杆倍数，范围1-125')
     parser.add_argument('--side', type=str, choices=['BUY', 'SELL'], help='交易方向，只在非target模式下使用')
     parser.add_argument('--type', type=str, default='MARKET', choices=['MARKET', 'LIMIT'], help='订单类型，默认为MARKET')
     parser.add_argument('--test', type=bool, default=True, help='是否使用测试网，默认为True')
@@ -362,15 +422,43 @@ if __name__ == "__main__":
     # 解析命令行参数
     args = parser.parse_args()
     
+    # 初始化交易引擎
+    trader = BinanceTraderEngine()
+    
+    # 根据测试模式使用不同的API密钥
+    if args.test:
+        api_key = "c3be109e8eb4be673f69b2bced4be0494efe24bb45ee31aae152c44c60ffdbd8"
+        api_secret = "20beaf4892d63ae8fa58fe3b3d5e49030f428859567a64449bfb42fa5465165a"
+        trader.init_client(
+            api_key=api_key,
+            api_secret=api_secret,
+            use_testnet=True,
+            simulate_trading=False
+        )
+    else:
+        # 实盘模式下，需要设置实际的API密钥
+        api_key = os.environ.get("BINANCE_API_KEY", "")
+        api_secret = os.environ.get("BINANCE_API_SECRET", "")
+        
+        if not api_key or not api_secret:
+            print("错误: 实盘模式需要设置BINANCE_API_KEY和BINANCE_API_SECRET环境变量")
+            sys.exit(1)
+            
+        trader.init_client(
+            api_key=api_key,
+            api_secret=api_secret,
+            use_testnet=False,
+            simulate_trading=False
+        )
+    
     if args.target:
         # 目标金额模式
         print(f"使用目标金额模式，调整{args.symbol}仓位到{args.margin} USDT保证金({args.leverage}倍杠杆)")
-        result = order_target_amount(
+        result = trader.order_target_amount(
             symbol=args.symbol,
             target_margin=args.margin,
             leverage=args.leverage,
-            order_type=args.type,
-            test_mode=args.test
+            order_type=args.type
         )
     else:
         # 传统模式
@@ -379,11 +467,10 @@ if __name__ == "__main__":
             sys.exit(1)
             
         print(f"使用传统模式，{args.side} {args.symbol} 使用{args.margin} USDT保证金({args.leverage}倍杠杆)")
-        result = order_by_margin(
+        result = trader.order_by_margin(
             symbol=args.symbol,
             margin=args.margin,
             leverage=args.leverage,
             side=args.side,
-            order_type=args.type,
-            test_mode=args.test
+            order_type=args.type
         ) 

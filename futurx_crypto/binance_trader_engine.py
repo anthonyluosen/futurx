@@ -41,6 +41,11 @@ class BinanceTraderEngine:
         # 基础URL
         self.base_url = ""
         
+        # 交易对信息缓存
+        self.exchange_info = {}
+        self.symbols_info = {}
+        self.last_info_update = 0
+        
         # 设置日志
         self.logger = logging.getLogger("BinanceTrader")
         self.logger.setLevel(logging.INFO)
@@ -72,7 +77,10 @@ class BinanceTraderEngine:
             self.base_url = "https://fapi.binance.com"
         
         self.connected = True
-        self.logger.info(f"Binance{'模拟' if simulate_trading else ''}{'测试网' if use_testnet else ''}交易引擎初始化成功")
+        # self.logger.info(f"Binance{'模拟' if simulate_trading else ''}{'测试网' if use_testnet else ''}交易引擎初始化成功")
+        
+        # 初始化时获取交易对信息
+        self.update_exchange_info()
     
     def _send_request(self, method: str, endpoint: str, params: Dict = None) -> Dict:
         """
@@ -163,7 +171,7 @@ class BinanceTraderEngine:
                 return 0
             
             price = float(result.get('price', 0))
-            self.logger.info(f"获取{symbol}价格成功: {price}")
+            # self.logger.info(f"获取{symbol}价格成功: {price}")
             return price
             
         except Exception as e:
@@ -356,7 +364,20 @@ class BinanceTraderEngine:
             'symbol': symbol,
             'marginType': margin_type
         }
-        return self._send_request('POST', '/fapi/v1/marginType', params)
+        result = self._send_request('POST', '/fapi/v1/marginType', params)
+        
+        # 处理"无需更改保证金类型"的情况
+        if isinstance(result, dict) and 'error' in result:
+            error_text = result['error']
+            if '"code":-4046' in error_text and '"msg":"No need to change margin type."' in error_text:
+                self.logger.info(f"保证金类型已经是{margin_type}，无需更改")
+                return {
+                    'symbol': symbol,
+                    'marginType': margin_type,
+                    'message': '保证金类型无需更改'
+                }
+        
+        return result
     
     # 简单的交易辅助方法
     def buy_market(self, symbol: str, quantity: float) -> Dict:
@@ -434,3 +455,531 @@ class BinanceTraderEngine:
             quantity=quantity,
             price=price
         )
+
+    def update_exchange_info(self) -> bool:
+        """
+        更新交易所信息，获取所有交易对的规格
+        
+        Returns:
+            bool: 是否更新成功
+        """
+        try:
+            # 只有在连接成功后才能获取信息
+            if not self.connected:
+                self.logger.error("未连接到Binance，无法获取交易所信息")
+                return False
+                
+            # 获取交易所信息
+            result = self._send_request('GET', '/fapi/v1/exchangeInfo')
+            
+            if 'error' in result:
+                self.logger.error(f"获取交易所信息失败: {result['error']}")
+                return False
+                
+            # 更新交易所信息缓存
+            self.exchange_info = result
+            self.last_info_update = int(time.time())
+            
+            # 整理交易对信息便于查询
+            self.symbols_info = {}
+            for symbol_data in result.get('symbols', []):
+                symbol = symbol_data.get('symbol')
+                if symbol:
+                    self.symbols_info[symbol] = {
+                        'baseAsset': symbol_data.get('baseAsset', ''),
+                        'quoteAsset': symbol_data.get('quoteAsset', ''),
+                        'status': symbol_data.get('status', ''),
+                        'filters': {}
+                    }
+                    
+                    # 整理过滤器信息
+                    for filter_data in symbol_data.get('filters', []):
+                        filter_type = filter_data.get('filterType')
+                        if filter_type:
+                            self.symbols_info[symbol]['filters'][filter_type] = filter_data
+            
+            # self.logger.info(f"成功更新交易所信息，共{len(self.symbols_info)}个交易对")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"更新交易所信息时发生错误: {e}")
+            return False
+            
+    def get_symbol_info(self, symbol: str) -> Dict:
+        """
+        获取指定交易对的信息
+        
+        Args:
+            symbol: 交易对名称
+            
+        Returns:
+            Dict: 交易对信息
+        """
+        # 检查是否需要更新信息（每小时更新一次）
+        if int(time.time()) - self.last_info_update > 3600:
+            self.update_exchange_info()
+            
+        # 如果没有缓存信息，尝试获取
+        if not self.symbols_info:
+            self.update_exchange_info()
+            
+        # 返回交易对信息
+        symbol = symbol.upper()
+        if symbol in self.symbols_info:
+            return self.symbols_info[symbol]
+        else:
+            self.logger.warning(f"未找到交易对{symbol}的信息")
+            return {}
+            
+    def get_price_filter(self, symbol: str) -> Tuple[float, int]:
+        """
+        获取交易对的价格过滤器信息
+        
+        Args:
+            symbol: 交易对名称
+            
+        Returns:
+            Tuple[float, int]: (最小价格变动单位, 价格精度)
+        """
+        symbol_info = self.get_symbol_info(symbol)
+        price_filter = symbol_info.get('filters', {}).get('PRICE_FILTER', {})
+        
+        if price_filter:
+            tick_size = float(price_filter.get('tickSize', 0.1))
+            
+            # 计算精度（小数位数）
+            tick_str = str(tick_size)
+            if '.' in tick_str:
+                precision = len(tick_str.split('.')[1].rstrip('0'))
+            else:
+                precision = 0
+                
+            return tick_size, precision
+            
+        # 返回默认值
+        symbol = symbol.upper()
+        if symbol.startswith('BTC'):
+            return 0.1, 1
+        elif symbol.startswith('ETH'):
+            return 0.01, 2
+        else:
+            return 0.01, 2
+            
+    def get_lot_size_filter(self, symbol: str) -> Tuple[float, int]:
+        """
+        获取交易对的数量过滤器信息
+        
+        Args:
+            symbol: 交易对名称
+            
+        Returns:
+            Tuple[float, int]: (最小数量变动单位, 数量精度)
+        """
+        symbol_info = self.get_symbol_info(symbol)
+        lot_size = symbol_info.get('filters', {}).get('LOT_SIZE', {})
+        
+        if lot_size:
+            step_size = float(lot_size.get('stepSize', 0.001))
+            
+            # 计算精度（小数位数）
+            step_str = str(step_size)
+            if '.' in step_str:
+                precision = len(step_str.split('.')[1].rstrip('0'))
+            else:
+                precision = 0
+                
+            return step_size, precision
+            
+        # 返回默认值
+        symbol = symbol.upper()
+        if symbol.startswith('BTC'):
+            return 0.001, 3
+        elif symbol.startswith('ETH'):
+            return 0.001, 3
+        else:
+            return 0.1, 1
+    
+    def order_target_amount(self, symbol: str, target_margin: float, leverage: int, 
+                           order_type: str = "MARKET") -> Dict:
+        """
+        根据目标保证金金额调整仓位
+        
+        Args:
+            symbol: 交易对，如 "BTCUSDT"
+            target_margin: 目标保证金金额(USDT)，正数表示做多，负数表示做空
+            leverage: 杠杆倍数，范围1-125，根据具体交易对不同而不同
+            order_type: 订单类型，"MARKET"或"LIMIT"
+            
+        Returns:
+            Dict: 下单结果
+        """
+        try:
+            # 获取交易对信息
+            symbol_info = self.get_symbol_info(symbol)
+            if not symbol_info:
+                return {'error': f'获取{symbol}信息失败'}
+            
+            # 获取交易对价格
+            price = self.get_ticker_price(symbol)
+            if price <= 0:
+                return {'error': f'获取{symbol}价格失败'}
+            
+            # self.logger.info(f"当前{symbol}价格: {price}")
+            
+            # 获取当前持仓
+            positions = self.get_positions(symbol)
+            
+            # 查找当前持仓和杠杆信息
+            current_position = 0.0
+            current_leverage = 0
+            for pos in positions:
+                if pos.get('symbol') == symbol.upper():
+                    current_position = float(pos.get('positionAmt', 0))
+                    # 获取当前杠杆
+                    current_leverage = int(pos.get('leverage', 0))
+                    break
+            
+            # self.logger.info(f"当前持仓数量: {current_position}")
+            
+            # 检查杠杆是否一致
+            if current_position != 0 and current_leverage != 0 and current_leverage != leverage:
+                warning_msg = f"警告: 当前持仓杠杆({current_leverage})与目标杠杆({leverage})不一致，将使用目标杠杆({leverage})进行调整"
+                self.logger.warning(warning_msg)
+                print(warning_msg)
+            
+            # 设置杠杆
+            leverage_result = self.set_leverage(symbol, leverage)
+            # self.logger.info(f"设置杠杆倍数结果: {leverage_result}")
+            
+            # 设置保证金类型为逐仓
+            margin_result = self.set_margin_type(symbol, "ISOLATED")
+            # self.logger.info(f"设置保证金类型结果: {margin_result}")
+            
+            # 计算目标持仓数量
+            # 目标持仓数量 = 目标保证金金额 * 杠杆倍数 / 价格
+            # 如果目标保证金为负，表示做空
+            target_position = (target_margin * leverage) / price
+            
+            # self.logger.info(f"目标持仓数量: {target_position}")
+            
+            # 计算需要调整的数量
+            position_diff = target_position - current_position
+            
+            # 如果差额很小，不做调整
+            precision = 5
+            if abs(position_diff) < 10**(-precision):
+                # self.logger.info("当前持仓已经接近目标持仓，无需调整")
+                return {
+                    'status': 'NO_CHANGE',
+                    'message': '当前持仓已经接近目标持仓，无需调整',
+                    'current_position': current_position,
+                    'current_leverage': current_leverage,
+                    'target_position': target_position,
+                    'target_leverage': leverage,
+                    'position_diff': position_diff
+                }
+            
+            # 确定交易方向
+            side = "BUY" if position_diff > 0 else "SELL"
+            
+            # 计算需要调整的合约数量
+            contract_amount = abs(position_diff)
+            
+            # 币安的最小名义价值要求通常是5-10 USDT
+            min_notional = 5.0
+            
+            # 检查名义价值是否满足最小要求
+            notional_value = contract_amount * price
+            if notional_value < min_notional:
+                self.logger.warning(f"计算的调整名义价值 {notional_value:.2f} USDT 小于最小要求 {min_notional} USDT")
+                # 如果调整量太小，考虑是否要强制调整
+                if abs(position_diff) < (min_notional / price / leverage):
+                    self.logger.warning("调整量太小，无法满足最小交易要求，跳过调整")
+                    return {
+                        'status': 'TOO_SMALL',
+                        'message': '调整量太小，无法满足最小交易要求',
+                        'current_position': current_position,
+                        'current_leverage': current_leverage,
+                        'target_position': target_position,
+                        'target_leverage': leverage,
+                        'position_diff': position_diff,
+                        'min_required_diff': min_notional / price / leverage
+                    }
+                # 调整合约数量以满足最小名义价值要求
+                contract_amount = min_notional / price
+                notional_value = contract_amount * price
+                # self.logger.info(f"调整后合约数量: {contract_amount}, 名义价值: {notional_value:.2f} USDT")
+            
+            # 获取数量精度和最小变动单位
+            try:
+                step_size, quantity_precision = self.get_lot_size_filter(symbol)
+                # self.logger.info(f"获取到{symbol}数量精度: {quantity_precision}, 最小数量变动单位: {step_size}")
+                
+                # 确保数量符合最小变动单位
+                contract_amount = math.floor(contract_amount / step_size) * step_size
+            except Exception as e:
+                self.logger.error(f"获取数量精度失败: {e}, 使用默认值")
+                # 使用默认值
+                symbol_lower = symbol.upper()
+                if symbol_lower.startswith("BTC"):
+                    quantity_precision = 3
+                elif symbol_lower.startswith("ETH"):
+                    quantity_precision = 3
+                else:
+                    quantity_precision = 1
+            
+            # 四舍五入到指定精度
+            contract_amount = round(contract_amount, quantity_precision)
+            
+            trade_info = (
+                f"下单信息:\n"
+                f"交易对: {symbol}\n"
+                f"方向: {side}\n"
+                f"当前持仓: {current_position} (杠杆: {current_leverage if current_leverage > 0 else '未知'}倍)\n"
+                f"目标持仓: {target_position} (杠杆: {leverage}倍)\n"
+                f"调整数量: {contract_amount}\n"
+                f"价格: {price}\n"
+                f"名义价值: {contract_amount * price:.2f} USDT"
+            )
+            # self.logger.info(trade_info)
+            
+            # 检查调整数量是否为0，如果是则不发送下单请求
+            if contract_amount <= 0:
+                # self.logger.info("调整数量为0或负数，无需发送下单请求")
+                return {
+                    'status': 'NO_ACTION',
+                    'message': '调整数量为0或负数，无需发送下单请求',
+                    'current_position': current_position,
+                    'current_leverage': current_leverage,
+                    'target_position': target_position,
+                    'target_leverage': leverage,
+                    'position_diff': position_diff,
+                    'adjusted_amount': contract_amount
+                }
+            
+            # 执行下单
+            if order_type == "MARKET":
+                result = self.place_order(
+                    symbol=symbol,
+                    side=side,
+                    order_type="MARKET",
+                    quantity=contract_amount
+                )
+            else:
+                # 对于限价单，需要提供价格
+                # 这里可以设置比当前价格略低/高的价格，视交易策略而定
+                price_offset = 0.005  # 价格偏移0.5%
+                limit_price = price * (1 - price_offset) if side == "BUY" else price * (1 + price_offset)
+                
+                # 获取价格精度和最小价格变动单位
+                try:
+                    tick_size, price_precision = self.get_price_filter(symbol)
+                    # self.logger.info(f"获取到{symbol}价格精度: {price_precision}, 最小价格变动单位: {tick_size}")
+                    
+                    # 确保价格符合最小价格变动单位
+                    limit_price = math.floor(limit_price / tick_size) * tick_size
+                except Exception as e:
+                    self.logger.error(f"获取价格精度失败: {e}, 使用默认值")
+                    # 使用默认值
+                    symbol_lower = symbol.upper()
+                    if symbol_lower.startswith("BTC"):
+                        price_precision = 1
+                        tick_size = 0.1
+                    elif symbol_lower.startswith("ETH"):
+                        price_precision = 2
+                        tick_size = 0.01
+                    else:
+                        price_precision = 2
+                        tick_size = 0.01
+                    
+                    # 处理价格
+                    limit_price = math.floor(limit_price / tick_size) * tick_size
+                    
+                # 四舍五入到指定精度
+                limit_price = round(limit_price, price_precision)
+                
+                # self.logger.info(f"限价单价格: {limit_price} (精度: {price_precision}, 最小变动单位: {tick_size})")
+                
+                result = self.place_order(
+                    symbol=symbol,
+                    side=side,
+                    order_type="LIMIT",
+                    quantity=contract_amount,
+                    price=limit_price
+                )
+            
+            # 添加调整信息到结果
+            if isinstance(result, dict) and 'error' not in result:
+                result.update({
+                    'current_position': current_position,
+                    'current_leverage': current_leverage,
+                    'target_position': target_position,
+                    'target_leverage': leverage,
+                    'position_diff': position_diff,
+                    'adjusted_amount': contract_amount,
+                    'target_margin': target_margin
+                })
+            
+            # self.logger.info(f"下单结果: {result}")
+            return result
+        except Exception as e:
+            error_msg = f"调整仓位失败: {str(e)}"
+            self.logger.error(error_msg)
+            return {'error': error_msg}
+            
+    def order_by_margin(self, symbol: str, margin: float, leverage: int, side: str, 
+                        order_type: str = "MARKET") -> Dict:
+        """
+        根据保证金金额下单
+        
+        Args:
+            symbol: 交易对，如 "BTCUSDT"
+            margin: 保证金金额(USDT)，正数表示做多，负数表示做空
+            leverage: 杠杆倍数，范围1-125，根据具体交易对不同而不同
+            side: 方向，"BUY"或"SELL"
+            order_type: 订单类型，"MARKET"或"LIMIT"
+            
+        Returns:
+            Dict: 下单结果
+        """
+        try:
+            # 获取交易对信息
+            symbol_info = self.get_symbol_info(symbol)
+            if not symbol_info:
+                return {'error': f'获取{symbol}信息失败'}
+            
+            # 获取交易对价格
+            price = self.get_ticker_price(symbol)
+            if price <= 0:
+                return {'error': f'获取{symbol}价格失败'}
+            
+            # self.logger.info(f"当前{symbol}价格: {price}")
+            
+            # 设置杠杆
+            leverage_result = self.set_leverage(symbol, leverage)
+            # self.logger.info(f"设置杠杆倍数结果: {leverage_result}")
+            
+            # 设置保证金类型为逐仓
+            margin_result = self.set_margin_type(symbol, "ISOLATED")
+            # self.logger.info(f"设置保证金类型结果: {margin_result}")
+            
+            # 计算合约数量
+            # 合约数量 = 保证金金额 * 杠杆倍数 / 价格
+            abs_margin = abs(margin)  # 取保证金绝对值
+            contract_amount = (abs_margin * leverage) / price
+            
+            # 币安的最小名义价值要求通常是5-10 USDT
+            min_notional = 5.0
+            
+            # 检查名义价值是否满足最小要求
+            notional_value = contract_amount * price
+            if notional_value < min_notional:
+                self.logger.warning(f"计算的名义价值 {notional_value:.2f} USDT 小于最小要求 {min_notional} USDT")
+                # 调整合约数量以满足最小名义价值要求
+                contract_amount = min_notional / price
+                notional_value = contract_amount * price
+                # self.logger.info(f"调整后合约数量: {contract_amount}, 名义价值: {notional_value:.2f} USDT")
+            
+            # 获取数量精度和最小变动单位
+            try:
+                step_size, quantity_precision = self.get_lot_size_filter(symbol)
+                # self.logger.info(f"获取到{symbol}数量精度: {quantity_precision}, 最小数量变动单位: {step_size}")
+                
+                # 确保数量符合最小变动单位
+                contract_amount = math.floor(contract_amount / step_size) * step_size
+            except Exception as e:
+                self.logger.error(f"获取数量精度失败: {e}, 使用默认值")
+                # 使用默认值
+                symbol_lower = symbol.upper()
+                if symbol_lower.startswith("BTC"):
+                    quantity_precision = 3
+                elif symbol_lower.startswith("ETH"):
+                    quantity_precision = 3
+                else:
+                    quantity_precision = 1
+            
+            # 四舍五入到指定精度
+            contract_amount = round(contract_amount, quantity_precision)
+            
+            trade_info = (
+                f"下单信息:\n"
+                f"交易对: {symbol}\n"
+                f"方向: {side}\n"
+                f"保证金: {abs_margin} USDT\n"
+                f"杠杆: {leverage}倍\n"
+                f"价格: {price}\n"
+                f"合约数量: {contract_amount}\n"
+                f"名义价值: {contract_amount * price:.2f} USDT"
+            )
+            # self.logger.info(trade_info)
+            
+            # 检查数量是否为0或负数
+            if contract_amount <= 0:
+                return {
+                    'status': 'NO_ACTION',
+                    'message': '计算的交易数量为0或负数，无需发送下单请求',
+                    'symbol': symbol,
+                    'margin': margin,
+                    'leverage': leverage,
+                    'side': side,
+                    'price': price,
+                    'calculated_amount': contract_amount
+                }
+            
+            # 执行下单
+            if order_type == "MARKET":
+                result = self.place_order(
+                    symbol=symbol,
+                    side=side,
+                    order_type="MARKET",
+                    quantity=contract_amount
+                )
+            else:
+                # 对于限价单，需要提供价格
+                # 这里可以设置比当前价格略低/高的价格，视交易策略而定
+                price_offset = 0.005  # 价格偏移0.5%
+                limit_price = price * (1 - price_offset) if side == "BUY" else price * (1 + price_offset)
+                
+                # 获取价格精度和最小价格变动单位
+                try:
+                    tick_size, price_precision = self.get_price_filter(symbol)
+                    # self.logger.info(f"获取到{symbol}价格精度: {price_precision}, 最小价格变动单位: {tick_size}")
+                    
+                    # 确保价格符合最小价格变动单位
+                    limit_price = math.floor(limit_price / tick_size) * tick_size
+                except Exception as e:
+                    self.logger.error(f"获取价格精度失败: {e}, 使用默认值")
+                    # 使用默认值
+                    symbol_lower = symbol.upper()
+                    if symbol_lower.startswith("BTC"):
+                        price_precision = 1
+                        tick_size = 0.1
+                    elif symbol_lower.startswith("ETH"):
+                        price_precision = 2
+                        tick_size = 0.01
+                    else:
+                        price_precision = 2
+                        tick_size = 0.01
+                    
+                    # 处理价格
+                    limit_price = math.floor(limit_price / tick_size) * tick_size
+                    
+                # 四舍五入到指定精度
+                limit_price = round(limit_price, price_precision)
+                
+                # self.logger.info(f"限价单价格: {limit_price} (精度: {price_precision}, 最小变动单位: {tick_size})")
+                
+                result = self.place_order(
+                    symbol=symbol,
+                    side=side,
+                    order_type="LIMIT",
+                    quantity=contract_amount,
+                    price=limit_price
+                )
+            
+            # self.logger.info(f"下单结果: {result}")
+            return result
+        except Exception as e:
+            error_msg = f"下单失败: {str(e)}"
+            self.logger.error(error_msg)
+            return {'error': error_msg}
