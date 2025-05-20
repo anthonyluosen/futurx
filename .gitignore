@@ -1,0 +1,4 @@
+data_crypto/
+local/
+.idea/
+**/__pycache__/

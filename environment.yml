@@ -1,0 +1,9 @@
+name: futurx
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.10
+  - python-binance
+  # - xtquant
+  - pip 
