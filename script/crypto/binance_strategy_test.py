@@ -28,7 +28,7 @@ from futurx_crypto.binance_trader_engine import BinanceTraderEngine
 import logging
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
@@ -41,7 +41,7 @@ class BinanceStrategy:
     """
 
     def __init__(self, main_engine: MainEngine, trade_engine: BinanceTraderEngine,
-                 strategy_name: str = "binance_strategy", symbol: str = "btcusdt"):
+                 strategy_name: str = "binance_strategy"):
         """
         初始化策略
 
@@ -57,9 +57,6 @@ class BinanceStrategy:
 
         # 注册事件处理函数
         self.main_engine.event_engine.register(EventType.BAR15MIN, self.on_bar)
-
-        # 订阅的交易对
-        self.symbol = symbol
 
         # 频率
         self.interval = '15m'
@@ -89,18 +86,18 @@ class BinanceStrategy:
         # tm, _ = now_time_to_trade_time()
         code = bar.symbol.upper()
 
-        self.logger.debug(
+        self.logger.info(
             f"收到ws {code} {self.interval} K线: 时间{tm} 开{bar.open_price} 高{bar.high_price} 低{bar.low_price} 收{bar.close_price}")
 
         lut = get_last_mmap_update_time(code, base_name_list)
-        self.logger.debug(rf'上次更新时间{lut} ws时间{tm}')
+        self.logger.info(rf'上次更新时间{lut} ws时间{tm}')
 
         if get_mmap_time_delta(tm, lut) > 1:
-            self.logger.debug(rf'历史数据缺失 开始下载数据')
+            self.logger.info(rf'历史数据缺失 开始下载数据')
             self.rest_api.update_miss_kline(code, self.interval)
 
         if get_mmap_time_delta(tm, lut) <= 1:
-            self.logger.debug(rf'ws数据是最新 开始计算信号')
+            self.logger.info(rf'ws数据是最新 开始计算信号')
             time_loc = get_mmap_time_loc(tm)
             code_loc = get_mmap_code_loc(code)
 
@@ -121,6 +118,15 @@ class BinanceStrategy:
             self.logger.info(rf'{tm}时刻 调仓下单成功')
             self.logger.info(rf'下单信息 {str(trade_info)}')
 
+    def update_miss_kline(self, code: str):
+        _, lc_tm = now_time_to_trade_time()
+        lut = get_last_mmap_update_time(code, base_name_list)
+        self.logger.info(rf'{code} 上次更新时间{lut} 当前最新闭合k线时间{lc_tm}')
+
+        if get_mmap_time_delta(lc_tm, lut) > 0:
+            self.logger.info(rf'{code} 历史数据缺失 开始下载数据')
+            self.rest_api.update_miss_kline(code, self.interval)
+
 
 def main():
     """主函数"""
@@ -138,28 +144,38 @@ def main():
     test_local = False
 
     if test_local:
-        strategy = BinanceStrategy(main_engine, trade_engine, symbol='btcusdt')
-        binance_engine.subscribe_kline(strategy.symbol, strategy.interval, check_conc=False)
-        local_kline = pd.read_csv(rf"{facfmk_root_path}/sample_kline/BTCUSDT-15m-2025-05-07.csv")
-        for index, row in local_kline.iterrows():
-            msg = dict()
-            msg['e'] = 'kline'
-            dic = dict()
-            dic['x'] = True
-            dic['t'] = row['open_time']
-            dic['o'] = row['open']
-            dic['h'] = row['high']
-            dic['l'] = row['low']
-            dic['c'] = row['close']
-            dic['v'] = row['volume']
-            dic['q'] = row['quote_volume']
-            msg['k'] = dic
-            binance_engine._on_kline_message(msg, strategy.symbol, '15m')
+        # 本地测试使用
+        strategy = BinanceStrategy(main_engine, trade_engine)
+        for code in trade_code_list:
+            if code != 'FTMUSDT':
+                binance_engine.subscribe_kline(code, strategy.interval, check_conc=False)
+                local_kline = pd.read_csv(rf"{facfmk_root_path}/sample_kline/BTCUSDT-15m-2025-05-07.csv")
+                for index, row in local_kline.iterrows():
+                    msg = dict()
+                    msg['e'] = 'kline'
+                    dic = dict()
+                    dic['x'] = True
+                    dic['t'] = row['open_time']
+                    dic['o'] = row['open']
+                    dic['h'] = row['high']
+                    dic['l'] = row['low']
+                    dic['c'] = row['close']
+                    dic['v'] = row['volume']
+                    dic['q'] = row['quote_volume']
+                    msg['k'] = dic
+                    binance_engine._on_kline_message(msg, code, '15m')
+                    break
 
     else:
+        # 测试网使用
         binance_engine.connect()
-        strategy = BinanceStrategy(main_engine, trade_engine, symbol='btcusdt')
-        binance_engine.subscribe_kline(strategy.symbol, strategy.interval)
+        strategy = BinanceStrategy(main_engine, trade_engine)
+        for code in trade_code_list:
+            if code != 'FTMUSDT':
+                # 先批量补齐数据
+                strategy.update_miss_kline(code)
+                # 然后订阅ws
+                binance_engine.subscribe_kline(code, strategy.interval)
 
     try:
         # 持续运行一段时间
