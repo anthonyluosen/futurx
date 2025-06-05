@@ -28,9 +28,11 @@ def get_all_support_data_dict():
 # 字段频率
 base_itvl = "15min"
 # 框架总目录
-rp = rf'/home/ubuntu/futurx_test/data_crypto'
-facfmk_root_path = rf'{rp}/facfmk/{base_itvl}'
-static_config_data_path = rf'{rp}/facfmk/support_data'
+base_dir = os.path.dirname(os.path.dirname(__file__))
+base_dir = os.path.join(os.path.dirname(base_dir),"data")
+
+facfmk_root_path = rf'{base_dir}/facfmk/{base_itvl}'
+static_config_data_path = rf'{base_dir}/facfmk/support_data'
 config_data_path = rf'{facfmk_root_path}/support_data'
 base_data_fea_root_path = rf'{facfmk_root_path}/BaseData/Feather'
 base_data_mmap_root_path = rf'{facfmk_root_path}/BaseData/Mmap'

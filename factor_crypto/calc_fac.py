@@ -5,15 +5,14 @@ from factor_crypto.torch_operators import *
 time_step_left_for_nan = time_step_num * 1
 time_step_fac = time_step_num * 60 * 3
 
-for base_name in base_name_list:
-    exec(rf'{base_name} = torch.from_numpy(mmap_dict["{base_name}"])')
-
-for fac_name in fac_name_list:
-    exec(rf'{fac_name} = torch.from_numpy(mmap_dict["{base_name}"])')
-
-
 # 计算因子并保存至mmap
 def calc_fac_byloc(fac_exp_dict, time_loc, code_loc):
+    for base_name in base_name_list:
+        exec(rf'{base_name} = torch.from_numpy(mmap_dict["{base_name}"])')
+
+    for fac_name in fac_name_list:
+        exec(rf'{fac_name} = torch.from_numpy(mmap_dict["{base_name}"])')
+
     var_dict = locals()
     for base_name in base_name_list:
         exec(

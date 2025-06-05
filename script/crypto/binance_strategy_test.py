@@ -10,6 +10,7 @@ import time
 import sys
 import os
 from datetime import datetime
+import pandas as pd
 
 # 添加项目根目录到系统路径
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
@@ -17,6 +18,7 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from core.engine.main_engine import MainEngine
+from core.config import position_path
 from core.base import TickData, BarData
 from futurx_crypto.binance_engine import BinanceEngine
 from core.constant import EventType, Event
@@ -56,7 +58,6 @@ class BinanceStrategy:
         self.strategy_name = strategy_name
 
         # 注册事件处理函数
-        self.main_engine.event_engine.register(EventType.BAR15MIN, self.on_bar)
 
         # 频率
         self.interval = '15m'
@@ -66,8 +67,12 @@ class BinanceStrategy:
 
         # 日志
         self.logger = logging.getLogger(strategy_name)
-
+        self.position_path = position_path
+        self.register()
         self.logger.info(f"策略 {strategy_name} 初始化完成")
+    
+    def register(self,):
+        self.main_engine.event_engine.register(EventType.BAR15MIN, self.on_bar)
 
     def on_bar(self, event: Event):
         """
@@ -114,18 +119,24 @@ class BinanceStrategy:
             posi = calc_posi(fac_exp_dict, time_loc, code_loc).mean()
             self.logger.info(rf'{tm}时刻仓位 {posi}')
 
-            trade_info = self.trade_engine.order_target_amount(code, posi, 1, "MARKET")
+            trade_info = self.trade_engine.order_target_amount(code, posi, 20, "MARKET"
+                                                                ,factor_expansion=20)
+
             self.logger.info(rf'{tm}时刻 调仓下单成功')
-            self.logger.info(rf'下单信息 {str(trade_info)}')
 
-    def update_miss_kline(self, code: str):
-        _, lc_tm = now_time_to_trade_time()
-        lut = get_last_mmap_update_time(code, base_name_list)
-        self.logger.info(rf'{code} 上次更新时间{lut} 当前最新闭合k线时间{lc_tm}')
+            # 保存trade_info到csv
+            if isinstance(trade_info, dict):
+                trade_info_with_time = dict(trade_info)
+                trade_info_with_time['time'] = tm  # 增加时间字段
+                df = pd.DataFrame([trade_info_with_time])
+                file_path = os.path.join(self.position_path, f"{code}.csv")
+                if not os.path.exists(file_path):
+                    df.to_csv(file_path, index=False, mode='w', encoding='utf-8-sig')
+                else:
+                    df.to_csv(file_path, index=False, mode='a', header=False, encoding='utf-8-sig')
 
-        if get_mmap_time_delta(lc_tm, lut) > 0:
-            self.logger.info(rf'{code} 历史数据缺失 开始下载数据')
-            self.rest_api.update_miss_kline(code, self.interval)
+            # self.logger.info(rf'下单信息 {str(trade_info)}')
+            
 
 
 def main():
@@ -144,7 +155,6 @@ def main():
     test_local = False
 
     if test_local:
-        # 本地测试使用
         strategy = BinanceStrategy(main_engine, trade_engine)
         for code in trade_code_list:
             if code != 'FTMUSDT':
@@ -167,14 +177,10 @@ def main():
                     break
 
     else:
-        # 测试网使用
         binance_engine.connect()
         strategy = BinanceStrategy(main_engine, trade_engine)
         for code in trade_code_list:
             if code != 'FTMUSDT':
-                # 先批量补齐数据
-                strategy.update_miss_kline(code)
-                # 然后订阅ws
                 binance_engine.subscribe_kline(code, strategy.interval)
 
     try:

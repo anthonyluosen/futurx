@@ -600,7 +600,7 @@ class BinanceTraderEngine:
             return 0.1, 1
     
     def order_target_amount(self, symbol: str, target_margin: float, leverage: int, 
-                           order_type: str = "MARKET") -> Dict:
+                           order_type: str = "MARKET",factor_expansion = 1) -> Dict:
         """
         根据目标保证金金额调整仓位
         
@@ -613,6 +613,7 @@ class BinanceTraderEngine:
         Returns:
             Dict: 下单结果
         """
+        target_margin = target_margin * factor_expansion
         try:
             # 获取交易对信息
             symbol_info = self.get_symbol_info(symbol)
@@ -817,7 +818,9 @@ class BinanceTraderEngine:
                     'target_leverage': leverage,
                     'position_diff': position_diff,
                     'adjusted_amount': contract_amount,
-                    'target_margin': target_margin
+                    'target_margin': target_margin,
+                    "leverage":leverage,
+                    "expansion":factor_expansion
                 })
             
             # self.logger.info(f"下单结果: {result}")
@@ -966,9 +969,7 @@ class BinanceTraderEngine:
                     
                 # 四舍五入到指定精度
                 limit_price = round(limit_price, price_precision)
-                
-                # self.logger.info(f"限价单价格: {limit_price} (精度: {price_precision}, 最小变动单位: {tick_size})")
-                
+                                
                 result = self.place_order(
                     symbol=symbol,
                     side=side,
