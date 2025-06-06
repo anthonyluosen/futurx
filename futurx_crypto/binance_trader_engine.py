@@ -12,8 +12,10 @@ import hashlib
 import urllib.parse
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
+from core import config  
 import requests
 import math
+import traceback
 
 class BinanceTraderEngine:
     """
@@ -75,7 +77,7 @@ class BinanceTraderEngine:
             self.base_url = "https://testnet.binancefuture.com"
         else:
             self.base_url = "https://fapi.binance.com"
-        
+        self.margin_setted = set()
         self.connected = True
         # self.logger.info(f"Binance{'模拟' if simulate_trading else ''}{'测试网' if use_testnet else ''}交易引擎初始化成功")
         
@@ -600,7 +602,7 @@ class BinanceTraderEngine:
             return 0.1, 1
     
     def order_target_amount(self, symbol: str, target_margin: float, leverage: int, 
-                           order_type: str = "MARKET",factor_expansion = 1) -> Dict:
+                           order_type: str = "MARKET",factor_expansion = 1,margin_type:str = "ISOLATED") -> Dict:
         """
         根据目标保证金金额调整仓位
         
@@ -624,9 +626,7 @@ class BinanceTraderEngine:
             price = self.get_ticker_price(symbol)
             if price <= 0:
                 return {'error': f'获取{symbol}价格失败'}
-            
-            # self.logger.info(f"当前{symbol}价格: {price}")
-            
+                        
             # 获取当前持仓
             positions = self.get_positions(symbol)
             
@@ -639,9 +639,7 @@ class BinanceTraderEngine:
                     # 获取当前杠杆
                     current_leverage = int(pos.get('leverage', 0))
                     break
-            
-            # self.logger.info(f"当前持仓数量: {current_position}")
-            
+                        
             # 检查杠杆是否一致
             if current_position != 0 and current_leverage != 0 and current_leverage != leverage:
                 warning_msg = f"警告: 当前持仓杠杆({current_leverage})与目标杠杆({leverage})不一致，将使用目标杠杆({leverage})进行调整"
@@ -650,36 +648,21 @@ class BinanceTraderEngine:
             
             # 设置杠杆
             leverage_result = self.set_leverage(symbol, leverage)
-            # self.logger.info(f"设置杠杆倍数结果: {leverage_result}")
             
             # 设置保证金类型为逐仓
-            margin_result = self.set_margin_type(symbol, "ISOLATED")
-            # self.logger.info(f"设置保证金类型结果: {margin_result}")
+            if margin_type not in self.margin_setted:
+                margin_result = self.set_margin_type(symbol, margin_type)
+                self.margin_setted.add(margin_type)
             
             # 计算目标持仓数量
             # 目标持仓数量 = 目标保证金金额 * 杠杆倍数 / 价格
             # 如果目标保证金为负，表示做空
             target_position = (target_margin * leverage) / price
-            
-            # self.logger.info(f"目标持仓数量: {target_position}")
-            
+                        
             # 计算需要调整的数量
             position_diff = target_position - current_position
-            
-            # 如果差额很小，不做调整
-            precision = 5
-            if abs(position_diff) < 10**(-precision):
-                # self.logger.info("当前持仓已经接近目标持仓，无需调整")
-                return {
-                    'status': 'NO_CHANGE',
-                    'message': '当前持仓已经接近目标持仓，无需调整',
-                    'current_position': current_position,
-                    'current_leverage': current_leverage,
-                    'target_position': target_position,
-                    'target_leverage': leverage,
-                    'position_diff': position_diff
-                }
-            
+             
+
             # 确定交易方向
             side = "BUY" if position_diff > 0 else "SELL"
             
@@ -687,7 +670,7 @@ class BinanceTraderEngine:
             contract_amount = abs(position_diff)
             
             # 币安的最小名义价值要求通常是5-10 USDT
-            min_notional = 5.0
+            min_notional = config.min_notional
             
             # 检查名义价值是否满足最小要求
             notional_value = contract_amount * price
@@ -742,7 +725,6 @@ class BinanceTraderEngine:
                 f"价格: {price}\n"
                 f"名义价值: {contract_amount * price:.2f} USDT"
             )
-            # self.logger.info(trade_info)
             
             # 检查调整数量是否为0，如果是则不发送下单请求
             if contract_amount <= 0:
@@ -767,40 +749,43 @@ class BinanceTraderEngine:
                     quantity=contract_amount
                 )
             else:
-                # 对于限价单，需要提供价格
-                # 这里可以设置比当前价格略低/高的价格，视交易策略而定
-                price_offset = 0.005  # 价格偏移0.5%
-                limit_price = price * (1 - price_offset) if side == "BUY" else price * (1 + price_offset)
-                
-                # 获取价格精度和最小价格变动单位
-                try:
-                    tick_size, price_precision = self.get_price_filter(symbol)
-                    # self.logger.info(f"获取到{symbol}价格精度: {price_precision}, 最小价格变动单位: {tick_size}")
-                    
-                    # 确保价格符合最小价格变动单位
-                    limit_price = math.floor(limit_price / tick_size) * tick_size
-                except Exception as e:
-                    self.logger.error(f"获取价格精度失败: {e}, 使用默认值")
-                    # 使用默认值
-                    symbol_lower = symbol.upper()
-                    if symbol_lower.startswith("BTC"):
-                        price_precision = 1
-                        tick_size = 0.1
-                    elif symbol_lower.startswith("ETH"):
-                        price_precision = 2
-                        tick_size = 0.01
+                # 对于限价单，挂盘口一档价
+                orderbook = self.get_orderbook(symbol, limit=5)
+                if side == "BUY":
+                    # 买单挂在卖一价
+                    if orderbook and 'asks' in orderbook and len(orderbook['asks']) > 0:
+                        limit_price = float(orderbook['asks'][0][0])
                     else:
-                        price_precision = 2
-                        tick_size = 0.01
-                    
-                    # 处理价格
-                    limit_price = math.floor(limit_price / tick_size) * tick_size
-                    
+                        limit_price = price  # 兜底
+                else:
+                    # 卖单挂在买一价
+                    if orderbook and 'bids' in orderbook and len(orderbook['bids']) > 0:
+                        limit_price = float(orderbook['bids'][0][0])
+                    else:
+                        limit_price = price  # 兜底
+                # 获取价格精度和最小价格变动单位
+                # try:
+                    # tick_size, price_precision = self.get_price_filter(symbol)
+                    # self.logger.info(f"获取到{symbol}价格精度: {price_precision}, 最小价格变动单位: {tick_size}")
+                    # 确保价格符合最小价格变动单位
+                    # limit_price = math.floor(limit_price / tick_size) * tick_size
+                # except Exception as e:
+                #     self.logger.error(f"获取价格精度失败: {e}, 使用默认值")
+                #     symbol_lower = symbol.upper()
+                #     if symbol_lower.startswith("BTC"):
+                #         price_precision = 1
+                #         tick_size = 0.1
+                #     elif symbol_lower.startswith("ETH"):
+                #         price_precision = 2
+                #         tick_size = 0.01
+                #     else:
+                #         price_precision = 2
+                #         tick_size = 0.01
+                #     limit_price = math.floor(limit_price / tick_size) * tick_size
                 # 四舍五入到指定精度
-                limit_price = round(limit_price, price_precision)
-                
+                # limit_price = round(limit_price, price_precision)
                 # self.logger.info(f"限价单价格: {limit_price} (精度: {price_precision}, 最小变动单位: {tick_size})")
-                
+                self.logger.info(f"限价单价格: {limit_price}")
                 result = self.place_order(
                     symbol=symbol,
                     side=side,
@@ -826,7 +811,7 @@ class BinanceTraderEngine:
             # self.logger.info(f"下单结果: {result}")
             return result
         except Exception as e:
-            error_msg = f"调整仓位失败: {str(e)}"
+            error_msg = f"调整仓位失败: {str(traceback.format_exc())}"
             self.logger.error(error_msg)
             return {'error': error_msg}
             
@@ -872,7 +857,7 @@ class BinanceTraderEngine:
             contract_amount = (abs_margin * leverage) / price
             
             # 币安的最小名义价值要求通常是5-10 USDT
-            min_notional = 5.0
+            min_notional = 2
             
             # 检查名义价值是否满足最小要求
             notional_value = contract_amount * price
@@ -938,21 +923,28 @@ class BinanceTraderEngine:
                     quantity=contract_amount
                 )
             else:
-                # 对于限价单，需要提供价格
-                # 这里可以设置比当前价格略低/高的价格，视交易策略而定
-                price_offset = 0.005  # 价格偏移0.5%
-                limit_price = price * (1 - price_offset) if side == "BUY" else price * (1 + price_offset)
-                
+                # 对于限价单，挂盘口一档价
+                orderbook = self.get_orderbook(symbol,)
+                if side == "BUY":
+                    # 买单挂在卖一价
+                    if orderbook and 'asks' in orderbook and len(orderbook['asks']) > 0:
+                        limit_price = float(orderbook['asks'][0][0])
+                    else:
+                        limit_price = price  # 兜底
+                else:
+                    # 卖单挂在买一价
+                    if orderbook and 'bids' in orderbook and len(orderbook['bids']) > 0:
+                        limit_price = float(orderbook['bids'][0][0])
+                    else:
+                        limit_price = price  # 兜底
                 # 获取价格精度和最小价格变动单位
                 try:
                     tick_size, price_precision = self.get_price_filter(symbol)
                     # self.logger.info(f"获取到{symbol}价格精度: {price_precision}, 最小价格变动单位: {tick_size}")
-                    
                     # 确保价格符合最小价格变动单位
                     limit_price = math.floor(limit_price / tick_size) * tick_size
                 except Exception as e:
                     self.logger.error(f"获取价格精度失败: {e}, 使用默认值")
-                    # 使用默认值
                     symbol_lower = symbol.upper()
                     if symbol_lower.startswith("BTC"):
                         price_precision = 1
@@ -963,13 +955,10 @@ class BinanceTraderEngine:
                     else:
                         price_precision = 2
                         tick_size = 0.01
-                    
-                    # 处理价格
                     limit_price = math.floor(limit_price / tick_size) * tick_size
-                    
                 # 四舍五入到指定精度
                 limit_price = round(limit_price, price_precision)
-                                
+                # self.logger.info(f"限价单价格: {limit_price} (精度: {price_precision}, 最小变动单位: {tick_size})")
                 result = self.place_order(
                     symbol=symbol,
                     side=side,

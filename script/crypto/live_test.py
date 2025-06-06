@@ -21,7 +21,7 @@ from core.engine.main_engine import MainEngine
 from core.config import position_path,secret_key,api_key
 from core.base import TickData, BarData
 from futurx_crypto.binance_engine import BinanceEngine
-from core.constant import EventType, Event
+from core.constant import EventType, Event,OrderType,EngineType
 from factor_crypto.write_mmap import *
 from factor_crypto.calc_fac import calc_fac_byloc, calc_posi
 from factor_crypto.binance_rest import BinanceRest
@@ -119,8 +119,8 @@ class BinanceStrategy:
             posi = calc_posi(fac_exp_dict, time_loc, code_loc).mean()
             self.logger.info(rf'{tm}时刻仓位 {posi}')
 
-            trade_info = self.trade_engine.order_target_amount(code, posi, 20, "MARKET"
-                                                                ,factor_expansion=10)
+            trade_info = self.trade_engine.order_target_amount(code, posi, 10, "MARKET"
+                                                                ,factor_expansion=5,margin_type="CROSSED")
 
             self.logger.info(rf'{tm}时刻 调仓下单成功')
 
@@ -134,10 +134,7 @@ class BinanceStrategy:
                     df.to_csv(file_path, index=False, mode='w', encoding='utf-8-sig')
                 else:
                     df.to_csv(file_path, index=False, mode='a', header=False, encoding='utf-8-sig')
-
-            # self.logger.info(rf'下单信息 {str(trade_info)}')
             
-
 
 def main():
     """主函数"""

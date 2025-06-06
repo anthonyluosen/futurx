@@ -333,6 +333,7 @@ class BinanceEngine(BaseEngine):
 
         except Exception as e:
             self.logger.error(f"处理期货K线消息时发生错误: {e}")
+    
     def _on_kline_message(self, msg: Dict, symbol: str, interval: str) -> None:
         """
         处理K线消息

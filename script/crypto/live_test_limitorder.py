@@ -18,10 +18,10 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from core.engine.main_engine import MainEngine
-from core.config import position_path
+from core.config import position_path,secret_key,api_key
 from core.base import TickData, BarData
 from futurx_crypto.binance_engine import BinanceEngine
-from core.constant import EventType, Event
+from core.constant import EventType, Event,OrderType,EngineType
 from factor_crypto.write_mmap import *
 from factor_crypto.calc_fac import calc_fac_byloc, calc_posi
 from factor_crypto.binance_rest import BinanceRest
@@ -119,8 +119,8 @@ class BinanceStrategy:
             posi = calc_posi(fac_exp_dict, time_loc, code_loc).mean()
             self.logger.info(rf'{tm}时刻仓位 {posi}')
 
-            trade_info = self.trade_engine.order_target_amount(code, posi, 20, "MARKET"
-                                                                ,factor_expansion=20)
+            trade_info = self.trade_engine.order_target_amount(code, posi, 5, OrderType.LIMIT.value
+                                                                ,factor_expansion=5,margin_type="CROSSED")
 
             self.logger.info(rf'{tm}时刻 调仓下单成功')
 
@@ -145,43 +145,18 @@ def main():
 
     main_engine = MainEngine()
     binance_engine = BinanceEngine(main_engine, main_engine.event_engine)
-    main_engine.add_component("data", binance_engine, "binance")
+    main_engine.add_component(EngineType.DATA, binance_engine, "binance")
 
-    test_api_key = "c3be109e8eb4be673f69b2bced4be0494efe24bb45ee31aae152c44c60ffdbd8"
-    test_secret_key = "20beaf4892d63ae8fa58fe3b3d5e49030f428859567a64449bfb42fa5465165a"
+
     trade_engine = BinanceTraderEngine()
-    trade_engine.init_client(test_api_key, test_secret_key, use_testnet=True)
+    trade_engine.init_client(api_key, secret_key, use_testnet=False)
 
-    test_local = False
-
-    if test_local:
-        strategy = BinanceStrategy(main_engine, trade_engine)
-        for code in trade_code_list:
-            if code != 'FTMUSDT':
-                binance_engine.subscribe_kline(code, strategy.interval, check_conc=False)
-                local_kline = pd.read_csv(rf"{facfmk_root_path}/sample_kline/BTCUSDT-15m-2025-05-07.csv")
-                for index, row in local_kline.iterrows():
-                    msg = dict()
-                    msg['e'] = 'kline'
-                    dic = dict()
-                    dic['x'] = True
-                    dic['t'] = row['open_time']
-                    dic['o'] = row['open']
-                    dic['h'] = row['high']
-                    dic['l'] = row['low']
-                    dic['c'] = row['close']
-                    dic['v'] = row['volume']
-                    dic['q'] = row['quote_volume']
-                    msg['k'] = dic
-                    binance_engine._on_kline_message(msg, code, '15m')
-                    break
-
-    else:
-        binance_engine.connect()
-        strategy = BinanceStrategy(main_engine, trade_engine)
-        for code in trade_code_list:
-            if code != 'FTMUSDT':
-                binance_engine.subscribe_kline(code, strategy.interval)
+    binance_engine.connect()
+    strategy = BinanceStrategy(main_engine, trade_engine)
+    trade_code_list = ['PEOPLEUSDT']
+    for code in trade_code_list:
+        if code != 'FTMUSDT':
+            binance_engine.subscribe_futures_kline(code, strategy.interval)
 
     try:
         # 持续运行一段时间

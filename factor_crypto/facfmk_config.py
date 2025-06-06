@@ -1,5 +1,6 @@
 import sys
 from factor_crypto.utils import *
+from core.config import *
 
 
 def display_ls(ls, name):
@@ -25,32 +26,12 @@ def get_all_support_data_dict():
             trade_date_loc_dict, trade_code_loc_dict, trade_time_loc_dict)
 
 
-# 字段频率
-base_itvl = "15min"
-# 框架总目录
-base_dir = os.path.dirname(os.path.dirname(__file__))
-base_dir = os.path.join(os.path.dirname(base_dir),"data")
-
-facfmk_root_path = rf'{base_dir}/facfmk/{base_itvl}'
-static_config_data_path = rf'{base_dir}/facfmk/support_data'
-config_data_path = rf'{facfmk_root_path}/support_data'
-base_data_fea_root_path = rf'{facfmk_root_path}/BaseData/Feather'
-base_data_mmap_root_path = rf'{facfmk_root_path}/BaseData/Mmap'
-os.makedirs(static_config_data_path, exist_ok=True)
-os.makedirs(config_data_path, exist_ok=True)
-os.makedirs(base_data_fea_root_path, exist_ok=True)
-os.makedirs(base_data_mmap_root_path, exist_ok=True)
-
-fmk_start_date = '2022-01-01'
-fmk_end_date = '2026-12-31'
-
 (trade_date_list, trade_code_list, trade_time_list, trade_time_cont,
  trade_date_loc_dict, trade_code_loc_dict, trade_time_loc_dict) = get_all_support_data_dict()
 
 date_num = len(list(trade_date_loc_dict.keys()))
 code_num = len(list(trade_code_loc_dict.keys()))
 time_step_num = len(list(trade_time_loc_dict.keys()))
-
 
 def get_mmap_time_loc(tm):
     return trade_time_cont.index(tm)
