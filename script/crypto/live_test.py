@@ -145,7 +145,7 @@ def main():
 
     main_engine = MainEngine()
     binance_engine = BinanceEngine(main_engine, main_engine.event_engine)
-    main_engine.add_component("data", binance_engine, "binance")
+    main_engine.add_component(EngineType.DATA, binance_engine, "binance")
 
 
     trade_engine = BinanceTraderEngine()
@@ -156,7 +156,7 @@ def main():
     trade_code_list = ['DOGEUSDT']
     for code in trade_code_list:
         if code != 'FTMUSDT':
-            binance_engine.subscribe_kline(code, strategy.interval)
+            binance_engine.subscribe_futures_kline(code, strategy.interval)
 
     try:
         # 持续运行一段时间

@@ -13,12 +13,14 @@ from typing import Dict, List, Optional, Any, Callable
 from threading import Thread, Lock
 
 from binance.client import Client
-from binance import ThreadedWebsocketManager
+# from binance import ThreadedWebsocketManager
+from binance.ws.streams import ThreadedWebsocketManager
+from binance.enums import FuturesType, ContractType
 
 from core.engine.main_engine import BaseEngine
 from core.constant import EventType, Event, Exchange, Interval, SecurityType
 from core.base import TickData, BarData
-
+import traceback
 
 class BinanceEngine(BaseEngine):
     """
@@ -48,6 +50,8 @@ class BinanceEngine(BaseEngine):
 
         # 订阅的K线周期
         self.subscribed_intervals = set()
+
+        self.subscribed_futures_intervals = set()
 
         # 连接状态
         self.connected = False
@@ -192,6 +196,56 @@ class BinanceEngine(BaseEngine):
             self.logger.error(f"订阅 {symbol} {interval} K线数据失败: {e}")
             return False
 
+    def subscribe_futures_kline(self, symbol: str, interval: str,
+                              futures_type: FuturesType = FuturesType.USD_M,
+                              contract_type: ContractType = ContractType.PERPETUAL,
+                              check_conc: bool = True) -> bool:
+        """
+        订阅期货K线数据
+        
+        Args:
+            symbol: 交易对，例如 'btcusdt'
+            interval: K线周期，例如 '1m', '5m', '15m', '30m', '1h', '4h', '1d'
+            futures_type: 期货类型，USD_M表示U本位合约
+            contract_type: 合约类型，PERPETUAL表示永续合约
+            check_conc: 检查连接状态
+            
+        Returns:
+            bool: 订阅是否成功
+        """
+        if check_conc:
+            if not self.connected:
+                if not self.connect():
+                    return False
+
+        try:
+            # 标准化交易对格式
+            symbol = symbol.lower()
+
+            # 检查是否已订阅
+            subscription_key = f"{symbol}_{interval}_{futures_type}_{contract_type}"
+            if subscription_key in self.subscribed_futures_intervals:
+                return True
+
+            # 订阅期货K线数据
+            self.twm.start_kline_futures_socket(
+                callback=lambda msg: self._on_futures_kline_message(msg, symbol, interval),
+                symbol=symbol,
+                interval=interval,
+                futures_type=futures_type,
+                contract_type=contract_type
+            )
+
+            # 添加到已订阅列表
+            with self._lock:
+                self.subscribed_futures_intervals.add(subscription_key)
+
+            self.logger.info(f"成功订阅 {symbol.upper()} 的期货 {interval} K线数据")
+            return True
+        except Exception as e:
+            self.logger.error(f"订阅 {symbol} 期货 {interval} K线数据失败: {e}")
+            return False
+
     def _on_trade_message(self, msg: Dict, symbol: str) -> None:
         """
         处理逐笔交易消息
@@ -228,7 +282,57 @@ class BinanceEngine(BaseEngine):
                 self.logger.debug(f"收到 {symbol} 交易: 价格={msg['p']}, 数量={msg['q']}")
         except Exception as e:
             self.logger.error(f"处理逐笔交易消息时发生错误: {e}")
+    
+    def _on_futures_kline_message(self, msg: Dict, symbol: str, interval: str) -> None:
+        """
+        处理期货K线消息
+        
+        Args:
+            msg: 消息内容
+            symbol: 交易对
+            interval: K线周期
+        """
+        try:
+            # print(msg)
+            # 检查消息是否包含错误
+            if 'error' in msg:
+                self.logger.error(f"接收到期货错误: {msg['error']}")
+                return
 
+            # 检查消息类型
+            if 'e' in msg and msg['e'] == 'continuous_kline':
+                kline = msg['k']
+                # 只有当K线完成时才推送事件
+                if kline['x']:
+                    # 创建BarData对象
+                    bar = BarData(
+                        gateway_name="binance_futures",
+                        symbol=symbol,
+                        exchange=Exchange.BINANCE,
+                        datetime=datetime.fromtimestamp(kline['t'] / 1000, tz=timezone.utc),
+                        interval=self._convert_interval(interval),
+                        open_price=float(kline['o']),
+                        high_price=float(kline['h']),
+                        low_price=float(kline['l']),
+                        close_price=float(kline['c']),
+                        volume=float(kline['v']),
+                        turnover=float(kline['q']),
+                    )
+
+                    # 根据K线周期推送不同的事件
+                    event_type = self._get_event_type(interval)
+                    event = Event(type=event_type, data=bar)
+                    self.event_engine.put(event)
+
+                    self.logger.debug(f"收到期货 {symbol} {interval} K线: 开盘={kline['o']}, 收盘={kline['c']}, 成交量={kline['v']}")
+
+        except Exception as e:
+            self.logger.error(f"处理期货K线消息时发生错误: {traceback.format_exc()}")
+            
+            self.logger.error(f"消息内容: {msg}")
+
+        except Exception as e:
+            self.logger.error(f"处理期货K线消息时发生错误: {e}")
     def _on_kline_message(self, msg: Dict, symbol: str, interval: str) -> None:
         """
         处理K线消息

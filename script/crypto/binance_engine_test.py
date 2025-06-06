@@ -42,7 +42,7 @@ def main():
     binance_engine = BinanceEngine(main_engine, main_engine.event_engine)
     
     # 添加Binance数据引擎到主引擎
-    main_engine.add_component("data", binance_engine, "binance")
+    main_engine.add_component(EngineType.DATA, binance_engine, "binance")
     
     # 注册事件处理函数
     # main_engine.event_engine.register(EventType.TICK, on_tick)
@@ -63,13 +63,17 @@ def main():
     binance_engine.subscribe_tick(symbol)
     
     # 订阅不同周期的K线数据
-    binance_engine.subscribe_kline(symbol, '1m')  # 1分钟K线
+    binance_engine.subscribe_futures_kline(symbol, '1m')  # 1分钟K线
     # binance_engine.subscribe_kline(symbol, '5m')  # 5分钟K线
     # binance_engine.subscribe_kline(symbol, '15m')  # 15分钟K线
     # binance_engine.subscribe_kline(symbol, '30m')  # 30分钟K线
     # binance_engine.subscribe_kline(symbol, '1h')  # 1小时K线
     # binance_engine.subscribe_kline(symbol, '4h')  # 4小时K线
-    
+
+
+
+    # binance_engine.subscribe_futures_kline(symbol, '1m')  # 15分钟K线
+
     print(f"已订阅 {symbol.upper()} 的逐笔交易数据和K线数据")
     print("正在接收数据，按Ctrl+C退出...")
     
