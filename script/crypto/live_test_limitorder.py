@@ -119,8 +119,9 @@ class BinanceStrategy:
             posi = calc_posi(fac_exp_dict, time_loc, code_loc).mean()
             self.logger.info(rf'{tm}时刻仓位 {posi}')
 
-            trade_info = self.trade_engine.order_target_amount(code, posi, 5, OrderType.LIMIT.value
-                                                                ,factor_expansion=5,margin_type="CROSSED")
+            trade_info = self.trade_engine.order_target_amount(code, posi, 10, OrderType.LIMIT.value
+                                                                ,factor_expansion=10,margin_type="CROSSED",
+                                                                )
 
             self.logger.info(rf'{tm}时刻 调仓下单成功')
 
@@ -135,7 +136,6 @@ class BinanceStrategy:
                 else:
                     df.to_csv(file_path, index=False, mode='a', header=False, encoding='utf-8-sig')
 
-            # self.logger.info(rf'下单信息 {str(trade_info)}')
             
 
 
@@ -153,7 +153,8 @@ def main():
 
     binance_engine.connect()
     strategy = BinanceStrategy(main_engine, trade_engine)
-    trade_code_list = ['PEOPLEUSDT']
+    # trade_code_list = ['PEOPLEUSDT']
+    trade_code_list = ['DOGEUSDT',"1000SHIBUSDT","WLDUSDT","ZILUSDT"]
     for code in trade_code_list:
         if code != 'FTMUSDT':
             binance_engine.subscribe_futures_kline(code, strategy.interval)

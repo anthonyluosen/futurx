@@ -753,38 +753,17 @@ class BinanceTraderEngine:
                 orderbook = self.get_orderbook(symbol, limit=5)
                 if side == "BUY":
                     # 买单挂在卖一价
-                    if orderbook and 'asks' in orderbook and len(orderbook['asks']) > 0:
-                        limit_price = float(orderbook['asks'][0][0])
-                    else:
-                        limit_price = price  # 兜底
-                else:
-                    # 卖单挂在买一价
                     if orderbook and 'bids' in orderbook and len(orderbook['bids']) > 0:
                         limit_price = float(orderbook['bids'][0][0])
                     else:
                         limit_price = price  # 兜底
-                # 获取价格精度和最小价格变动单位
-                # try:
-                    # tick_size, price_precision = self.get_price_filter(symbol)
-                    # self.logger.info(f"获取到{symbol}价格精度: {price_precision}, 最小价格变动单位: {tick_size}")
-                    # 确保价格符合最小价格变动单位
-                    # limit_price = math.floor(limit_price / tick_size) * tick_size
-                # except Exception as e:
-                #     self.logger.error(f"获取价格精度失败: {e}, 使用默认值")
-                #     symbol_lower = symbol.upper()
-                #     if symbol_lower.startswith("BTC"):
-                #         price_precision = 1
-                #         tick_size = 0.1
-                #     elif symbol_lower.startswith("ETH"):
-                #         price_precision = 2
-                #         tick_size = 0.01
-                #     else:
-                #         price_precision = 2
-                #         tick_size = 0.01
-                #     limit_price = math.floor(limit_price / tick_size) * tick_size
-                # 四舍五入到指定精度
-                # limit_price = round(limit_price, price_precision)
-                # self.logger.info(f"限价单价格: {limit_price} (精度: {price_precision}, 最小变动单位: {tick_size})")
+                else:
+                    # 卖单挂在买一价
+                    if orderbook and 'asks' in orderbook and len(orderbook['asks']) > 0:
+                        limit_price = float(orderbook['asks'][0][0])
+                    else:
+                        limit_price = price  # 兜底
+
                 self.logger.info(f"限价单价格: {limit_price}")
                 result = self.place_order(
                     symbol=symbol,

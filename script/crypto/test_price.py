@@ -33,4 +33,5 @@ binance_engine.init_client(api_key=api_key,api_secret=secret_key)
 symbol = "btcusdt"
 orderbook = binance_engine.get_orderbook(symbol, limit=5)
 
-print(orderbook)
+print(orderbook['bids'])
+print(orderbook['asks'])

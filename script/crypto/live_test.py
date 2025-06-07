@@ -119,7 +119,7 @@ class BinanceStrategy:
             posi = calc_posi(fac_exp_dict, time_loc, code_loc).mean()
             self.logger.info(rf'{tm}时刻仓位 {posi}')
 
-            trade_info = self.trade_engine.order_target_amount(code, posi, 10, "MARKET"
+            trade_info = self.trade_engine.order_target_amount(code, posi, 10, OrderType.MARKET.value
                                                                 ,factor_expansion=5,margin_type="CROSSED")
 
             self.logger.info(rf'{tm}时刻 调仓下单成功')
