@@ -5,6 +5,16 @@
 强制更新某区间的kline数据，不论该区间是否已经有数据存在
 适合数据出错的适合强制覆盖
 """
+
+import os
+import sys
+
+# 添加项目根目录到系统路径
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+if root_path not in sys.path:
+    sys.path.append(root_path)
+
+
 from factor_crypto.binance_rest import *
 
 if __name__ == '__main__':
