@@ -7,16 +7,11 @@ time_step_fac = time_step_num * 60 * 3
 
 # 计算因子并保存至mmap
 def calc_fac_byloc(fac_exp_dict, time_loc, code_loc):
-    for base_name in base_name_list:
-        exec(rf'{base_name} = torch.from_numpy(mmap_dict["{base_name}"])')
-
-    for fac_name in fac_name_list:
-        exec(rf'{fac_name} = torch.from_numpy(mmap_dict["{base_name}"])')
-
     var_dict = locals()
     for base_name in base_name_list:
         exec(
-            rf'var_dict["{base_name}"] = {base_name}[{time_loc}-{time_step_left_for_nan}-{time_step_fac}+1:{time_loc}+1, [{code_loc}]]')
+            rf'var_dict["{base_name}"] = torch.from_numpy(mmap_dict["{base_name}"][{time_loc}-{time_step_left_for_nan}-{time_step_fac}+1:{time_loc}+1, [{code_loc}]])')
+
     for fac_name, fac_exp in fac_exp_dict.items():
         if ';' in fac_exp:
             exp_list = fac_exp.split(';')
@@ -65,12 +60,12 @@ def ts_dext_fea_pd(fea_in, d, dext_q):
 
 
 # 计算仓位
-def calc_posi(fac_exp_dict, time_loc, code_loc):
+def calc_posi(fac_exp_dict, fac_sign_dict, time_loc, code_loc):
     preproc_d = 96 * 60
     fac_df = dict()
     for fac_name, fac_exp in fac_exp_dict.items():
         fac = mmap_dict[fac_name][time_loc - preproc_d * 3 + 1:time_loc + 1, code_loc]
-        fac_df[fac_name] = pd.Series(fac)
+        fac_df[fac_name] = pd.Series(fac) * fac_sign_dict[fac_name]
     fac_df = pd.DataFrame(fac_df)
     fea_dext_pd = ts_dext_fea_pd(fac_df, preproc_d, 0.01)
     fea_zscore_pd = ts_zscore_fea_pd(fea_dext_pd, preproc_d, preproc_d // 3, fillna=True)

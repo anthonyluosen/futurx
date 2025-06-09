@@ -32,18 +32,51 @@ for base_name in tqdm(mmap_name_list, desc='load mmap'):
     mmap_dict[base_name] = return_rw_mmap(mmap_path, dtype='float32', shape=(date_num * time_step_num, code_num))
 
 
-def write_mmap_bystr(time, code, mmap_name, data):
+def read_mmap(time: str, code: str, mmap_name: str):
+    """
+    给定字符形式的time和code，返回mmap_name数值
+    """
+    time_loc = get_mmap_time_loc(time)
+    code_loc = get_mmap_code_loc(code)
+    return mmap_dict[mmap_name][time_loc, code_loc]
+
+
+def read_cont_mmap(time_start: str, time_end: str, code: str, mmap_name: str):
+    """
+    给定字符形式的time_start, time_end和code，返回time_start至time_end的mmap_name数值
+    注意是 time_start <= t <= time_end 的左闭右闭区间的数据
+    """
+    start_loc = get_mmap_time_loc(time_start)
+    end_loc = get_mmap_time_loc(time_end)
+    code_loc = get_mmap_code_loc(code)
+    return np.array(mmap_dict[mmap_name][start_loc:end_loc + 1, code_loc])
+
+
+def write_mmap(time: str, code: str, mmap_name: str, data: float):
+    """
+    给定字符形式的time和code，将data写入mmap_name字段
+    """
     time_loc = get_mmap_time_loc(time)
     code_loc = get_mmap_code_loc(code)
     mmap_dict[mmap_name][time_loc, code_loc] = data
 
 
+def write_cont_mmap(time_start: str, time_end: str, code: str, mmap_name: str, data: float):
+    """
+    给定字符形式的time_start, time_end和code，将data写入time_start至time_end的mmap_name字段
+    注意是 time_start <= t <= time_end 的左闭右闭区间的数据
+    """
+    start_loc = get_mmap_time_loc(time_start)
+    end_loc = get_mmap_time_loc(time_end)
+    code_loc = get_mmap_code_loc(code)
+    mmap_dict[mmap_name][start_loc:end_loc + 1, code_loc] = data
+
+
 def write_mmap_byloc(time_loc, code_loc, mmap_name, data):
+    """
+    给定mmap索引位置的time和code，将data写入字段
+    """
     mmap_dict[mmap_name][time_loc, code_loc] = data
-
-
-def get_mmap_by_time_code_loc(time_loc, code_loc, mmap_name):
-    return mmap_dict[mmap_name][time_loc, code_loc]
 
 
 def get_last_mmap_update_time(code, mmap_name_list):

@@ -116,7 +116,7 @@ class BinanceStrategy:
                 mmap_dict[bn].flush()
 
             calc_fac_byloc(fac_exp_dict, time_loc, code_loc)
-            posi = calc_posi(fac_exp_dict, time_loc, code_loc).mean()
+            posi = calc_posi(fac_exp_dict, fac_sign_dict, time_loc, code_loc).mean()
             self.logger.info(rf'{tm}时刻仓位 {posi}')
 
             trade_info = self.trade_engine.order_target_amount(code, posi, 10, OrderType.LIMIT.value
