@@ -6,6 +6,10 @@
 专注于组合层面的因子IC分析、稳定性评估和预测能力分析
 """
 
+import os
+# 设置环境变量以解决OpenMP重复初始化的错误
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,6 +17,7 @@ from scipy import stats
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import warnings
+import torch
 warnings.filterwarnings('ignore')
 
 import sys
@@ -221,54 +226,52 @@ class FactorAnalysis:
         return stats_info
     
     def calculate_portfolio_weighted_ic(self, factor_values: np.ndarray, 
-                                       returns: np.ndarray,
-                                       weight_method: str = 'equal') -> Tuple[float, float]:
+                                       returns: np.ndarray
+                                       ) -> Tuple[float, float]:
         """
-        计算组合加权IC
+        计算组合加权IC (时序IC)
         
         Args:
             factor_values: 因子值数组 [time, code]
             returns: 收益率数组 [time, code]
-            weight_method: 权重方法 'equal'/'market_cap'/'volatility'
             
         Returns:
             (IC均值, IC标准差)
         """
-        print(factor_values.shape,returns.shape)
-        n_time = factor_values.shape[0]
-        ic_series = []
+        print(f"因子数据形状: {factor_values.shape}, 收益率数据形状: {returns.shape}")
         
-        for t in range(n_time):
-            factor_t = factor_values[t, :]
-            return_t = returns[t, :]
+        n_time, n_code = factor_values.shape
+        ic_list = []  # 存储每个币种的IC值
+        
+        # 对每个币种计算时序IC
+        for code_idx in range(n_code):
+            factor_series = factor_values[:, code_idx]
+            return_series = returns[:, code_idx]
             
-            # 找到有效数据
-            valid_mask = ~(np.isnan(factor_t) | np.isnan(return_t))
+            # 找到有效数据点
+            valid_mask = ~(np.isnan(factor_series) | np.isnan(return_series))
             
-            if valid_mask.sum() >= 3:  # 至少需要3个有效样本
-                factor_valid = factor_t[valid_mask]
-                return_valid = return_t[valid_mask]
+            if valid_mask.sum() >= 10:  # 至少需要10个有效样本
+                factor_valid = factor_series[valid_mask]
+                return_valid = return_series[valid_mask]
                 
-                # 计算权重
-                if weight_method == 'equal':
-                    weights = np.ones(len(factor_valid)) / len(factor_valid)
-                elif weight_method == 'volatility':
-                    # 基于波动率的权重（这里简化处理）
-                    weights = np.ones(len(factor_valid)) / len(factor_valid)
-                else:
-                    weights = np.ones(len(factor_valid)) / len(factor_valid)
-                
-                # 计算加权IC (使用Spearman相关系数)
+                # 计算该币种的时序IC (使用Spearman相关系数)
                 if len(factor_valid) > 1:
                     ic, _ = stats.spearmanr(factor_valid, return_valid)
                     if not np.isnan(ic):
-                        ic_series.append(ic)
+                        ic_list.append(ic)
         
-        if len(ic_series) == 0:
+        if len(ic_list) == 0:
             return 0.0, 0.0
             
-        ic_array = np.array(ic_series)
-        return ic_array.mean(), ic_array.std()
+        # 计算所有币种IC的均值和标准差
+        ic_array = np.array(ic_list)
+        ic_mean = round(float(ic_array.mean()), 4)  # 转换为Python float并保留4位小数
+        ic_std = round(float(ic_array.std()), 4)    # 转换为Python float并保留4位小数
+        
+        print(f"有效币种数: {len(ic_list)}, IC均值: {ic_mean}, IC标准差: {ic_std}")
+        
+        return ic_mean, ic_std, ic_array
     
     def analyze_factor_ic(self, factor_name: str, 
                          return_periods: List[int] = [1, 4, 16, 96]) -> Dict:
@@ -294,30 +297,16 @@ class FactorAnalysis:
             returns = self.returns_data[period]
             
             # 计算组合加权IC
-            ic_mean, ic_std = self.calculate_portfolio_weighted_ic(factor_data, returns)
-            
-            # 计算IC_IR
-            ic_ir = ic_mean / ic_std if ic_std > 0 else 0
-            
-            # 计算详细IC时间序列
-            ic_series = self.calculate_ic_time_series(factor_data, returns)
-            
-            # 计算IC胜率
-            ic_win_rate = (np.array(ic_series) > 0).mean() if len(ic_series) > 0 else 0
-            
-            # 计算IC绝对值均值
-            ic_abs_mean = np.mean(np.abs(ic_series)) if len(ic_series) > 0 else 0
+            ic_mean, ic_std, ic_array = self.calculate_portfolio_weighted_ic(factor_data, returns)
             
             period_name = self.get_period_name(period)
             
             ic_results[period_name] = {
                 'IC均值': ic_mean,
                 'IC标准差': ic_std,
-                'IC_IR': ic_ir,
-                'IC胜率': ic_win_rate,
-                'IC绝对值均值': ic_abs_mean,
-                'IC时间序列': ic_series,
-                '样本数': len(ic_series)
+                'IC_IR': round(ic_mean / ic_std, 4) if ic_std > 0 else 0,
+                'IC绝对值均值': round(float(np.abs(ic_mean)), 4),  # 转换为Python float并保留4位小数
+                # '有效币种数': len([ic for ic in ic_list if not np.isnan(ic)]) if 'ic_list' in locals() else 0
             }
         
         return ic_results
@@ -388,34 +377,27 @@ class FactorAnalysis:
             
             # 计算窗口IC
             ic_mean, ic_std = self.calculate_portfolio_weighted_ic(factor_window, returns_window)
-            ic_ir = ic_mean / ic_std if ic_std > 0 else 0
-            
-            # 计算IC时间序列
-            ic_series = self.calculate_ic_time_series(factor_window, returns_window)
-            ic_win_rate = (np.array(ic_series) > 0).mean() if len(ic_series) > 0 else 0
             
             stability_results.append({
                 '窗口开始': start_idx,
                 '窗口结束': end_idx,
                 'IC均值': ic_mean,
                 'IC标准差': ic_std,
-                'IC_IR': ic_ir,
-                'IC胜率': ic_win_rate,
-                '样本数': len(ic_series)
+                'IC_IR': round(ic_mean / ic_std, 4) if ic_std > 0 else 0
             })
         
         # 计算稳定性指标
         if len(stability_results) > 0:
             ic_means = [r['IC均值'] for r in stability_results]
+            ic_stds = [r['IC标准差'] for r in stability_results]
             ic_irs = [r['IC_IR'] for r in stability_results]
-            ic_win_rates = [r['IC胜率'] for r in stability_results]
             
             stability_metrics = {
-                'IC均值稳定性': np.std(ic_means),
-                'IC_IR稳定性': np.std(ic_irs),
-                'IC胜率稳定性': np.std(ic_win_rates),
-                'IC均值趋势': self.calculate_trend(ic_means),
-                'IC_IR趋势': self.calculate_trend(ic_irs),
+                'IC均值稳定性': round(np.std(ic_means), 4),
+                'IC标准差稳定性': round(np.std(ic_stds), 4),
+                'IC_IR稳定性': round(np.std(ic_irs), 4),
+                'IC均值趋势': round(self.calculate_trend(ic_means), 4),
+                'IC_IR趋势': round(self.calculate_trend(ic_irs), 4),
                 '窗口数量': len(stability_results),
                 '详细结果': stability_results
             }
@@ -464,7 +446,6 @@ class FactorAnalysis:
             
             # 计算IC
             ic_mean, ic_std = self.calculate_portfolio_weighted_ic(factor_data, returns_lag)
-            ic_ir = ic_mean / ic_std if ic_std > 0 else 0
             
             period_name = self.get_period_name(lag)
             
@@ -473,8 +454,8 @@ class FactorAnalysis:
                 '周期名称': period_name,
                 'IC均值': ic_mean,
                 'IC标准差': ic_std,
-                'IC_IR': ic_ir,
-                'IC绝对值': abs(ic_mean)
+                'IC_IR': round(ic_mean / ic_std, 4) if ic_std > 0 else 0,
+                'IC绝对值': round(float(abs(ic_mean)), 4)  # 转换为Python float并保留4位小数
             })
         
         # 计算衰减系数
@@ -483,7 +464,7 @@ class FactorAnalysis:
             lags = list(range(1, len(ic_abs_values) + 1))
             
             # 拟合指数衰减
-            decay_coef = self.fit_decay_curve(lags, ic_abs_values)
+            decay_coef = round(self.fit_decay_curve(lags, ic_abs_values), 4)
         else:
             decay_coef = 0
         
@@ -605,11 +586,9 @@ class FactorAnalysis:
             ic_1d = ic_results['1天']
             ic_score = min(abs(ic_1d['IC均值']) * 100, 10)  # 最高10分
             ir_score = min(abs(ic_1d['IC_IR']) * 2, 10)     # 最高10分
-            win_rate_score = ic_1d['IC胜率'] * 10           # 最高10分
             
             scores['IC得分'] = ic_score
             scores['IR得分'] = ir_score
-            scores['胜率得分'] = win_rate_score
         
         # 稳定性得分
         if stability_results:
@@ -664,16 +643,15 @@ class FactorAnalysis:
         ax2.set_ylabel('IC_IR')
         ax2.grid(True)
         
-        # IC胜率图
+        # IC绝对值图
         ax3 = axes[0, 2]
-        win_rates = [ic_results[p]['IC胜率'] for p in periods]
-        ax3.bar(x_pos, win_rates, alpha=0.7, color='orange')
+        ic_abs_values = [ic_results[p]['IC绝对值均值'] for p in periods]
+        ax3.bar(x_pos, ic_abs_values, alpha=0.7, color='orange')
         ax3.set_xticks(x_pos)
         ax3.set_xticklabels(periods, rotation=45)
-        ax3.set_title('IC胜率')
-        ax3.set_ylabel('胜率')
+        ax3.set_title('IC绝对值均值')
+        ax3.set_ylabel('IC绝对值')
         ax3.grid(True)
-        ax3.axhline(y=0.5, color='red', linestyle='--', alpha=0.5)
         
         # 稳定性分析图
         ax4 = axes[1, 0]
@@ -740,7 +718,7 @@ class FactorAnalysis:
         # IC分析摘要
         print(f"\n--- IC分析结果 ---")
         for period, result in ic_results.items():
-            print(f"{period}: IC={result['IC均值']:.4f}, IC_IR={result['IC_IR']:.4f}, 胜率={result['IC胜率']:.2%}")
+            print(f"{period}: IC={result['IC均值']:.4f}, IC_IR={result['IC_IR']:.4f}, IC标准差={result['IC标准差']:.4f}")
         
         # 稳定性分析摘要
         if stability_results:
@@ -748,6 +726,7 @@ class FactorAnalysis:
             print(f"IC均值稳定性: {stability_results.get('IC均值稳定性', 0):.4f}")
             print(f"IC_IR稳定性: {stability_results.get('IC_IR稳定性', 0):.4f}")
             print(f"IC均值趋势: {stability_results.get('IC均值趋势', 0):.4f}")
+            print(f"IC_IR趋势: {stability_results.get('IC_IR趋势', 0):.4f}")
         
         # 衰减分析摘要
         if decay_results:

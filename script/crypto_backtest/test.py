@@ -37,7 +37,8 @@ if __name__ == "__main__":
     end_time=end_time,
     codes=codes
     )
-    factor_analyzer.analyze_factor_ic(factor_name=factor_name)
+    result = factor_analyzer.analyze_factor_ic(factor_name=factor_name)
+    print(result)
     # factor_results = factor_analyzer.run_comprehensive_analysis(factor_name)
 
 
